@@ -68,6 +68,7 @@ isolated, it maps to them).
 | `memory` | `answer`, `question?`, `context?`, `timesAsked?`, `id?`, `from?` | A memory card. `from: "last"` (default) quotes the last transcript line as its source; `"ui"` = taught in UI. Receipt "Learned a new memory" (unless `"ui"`) |
 | `repeat` | `memory` (id or text in it), `who?` | Repeat answered from memory: count +1, total repeats +1, card highlighted, receipt "Recalled from memory (asked N×): …" |
 | `person` | `name`, `relationship?`, `tone?` | A People card |
+| `owner` | `name` | The owner's display name (e.g. a teammate playing the owner) |
 | `listening` | `on` | "Listening" chip and the mic button state |
 | `focus` | `on` | "Focus mode" chip and button |
 | `tab` | `tab`: memory, people, transcript | Switches the side panel |
@@ -92,6 +93,20 @@ endpoint and `window.ritnag`.
 5. Start the screen recording, then `npm run director -- play timeline.json`. Note the wall-clock time the command
    returned: that's `at = 0`. Poll `status` until `playing` is false.
 6. Retake from the middle with `--from <ms>`. Return to the real app with `npm run director -- live`.
+
+## From a finished video to a matching UI recording (fully automated)
+
+1. `npm run director:transcribe -- edit.mov --out out/edit/transcript.json`: Deepgram transcript with speaker labels
+   and word timings, plus a draft timeline (one `say` per utterance). Diarization can merge voices (the imp's
+   voice and the owner's came out as one speaker in the 10/24 video), so check who is speaking against the
+   footage and split lines at word times.
+2. Edit the timeline: `{"do":"owner","name":"Leon"}` if someone else plays the owner, names for each speaker,
+   the imp's lines as `imp` with `voice: false` and `ms` = its length in the audio, then notices, memory,
+   repeat and alert beats. Fix misheard names. Example: [`director/demo-1024.json`](director/demo-1024.json).
+3. `npm run director:record -- timeline.json --out out/edit/ui.mp4`: records the page in its own headless
+   Chrome (other tabs unaffected) at 1280×720 CSS px, 1.5× density = 1920×1080, 30 fps. Frame 0 = `at: 0`, so
+   it lines up with the start of the edit. `--size`, `--dpr`, `--projector`, `--tail ms` adjust it. About 2 min
+   for a 105 s timeline. The dev server must be running.
 
 ## Hand-driven text script (Settings → Director)
 

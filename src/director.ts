@@ -111,6 +111,7 @@ export interface Stage {
   receipt: string | null;
   state: ImpState | null;
   listening: boolean | null;
+  ownerName: string | null;
   focus: boolean | null;
   tab: Tab | null;
   highlight: string[];
@@ -138,6 +139,7 @@ const EMPTY: Stage = {
   receipt: null,
   state: null,
   listening: null,
+  ownerName: null,
   focus: null,
   tab: null,
   highlight: [],
@@ -460,6 +462,8 @@ export class Director {
       case "person":
         this.ensurePerson(c.name, { relationship: c.relationship ?? null, tone: c.tone });
         return;
+      case "owner":
+        return this.set({ ownerName: c.name });
       case "listening":
         return this.set({ listening: c.on });
       case "focus":
@@ -487,6 +491,7 @@ export class Director {
 
   private speakerShown(who: string, label?: string) {
     const p = this.parseWho(who, label);
+    if (p.kind === "owner" && this.stage.ownerName) return this.stage.ownerName;
     return p.name ?? p.label;
   }
 
@@ -574,6 +579,7 @@ export class Director {
     for (const [k, v] of Object.entries(s.byPerson)) byPerson[remap(k)!] = (byPerson[remap(k)!] ?? 0) + v;
     return {
       ...base,
+      ownerName: s.ownerName ?? base.ownerName,
       session: {
         ...base.session,
         focusMode: s.focus ?? base.session.focusMode,

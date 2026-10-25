@@ -53,6 +53,8 @@ export const DirectorCommand = z.discriminatedUnion("do", [
   z.object({ do: z.literal("repeat"), memory: z.string().min(1).describe("memory id, or text found in its question/answer"), who: Who.optional() }),
   /** A person card (People tab), so `say` lines by that name show as a known person. */
   z.object({ do: z.literal("person"), name: z.string().min(1), relationship: z.string().nullable().optional(), tone: Tone.optional() }),
+  /** The owner's display name (transcript "<name> (owner)"), e.g. when someone else plays the owner in a video. */
+  z.object({ do: z.literal("owner"), name: z.string().min(1) }),
   z.object({ do: z.literal("listening"), on: z.boolean() }),
   z.object({ do: z.literal("focus"), on: z.boolean() }),
   z.object({ do: z.literal("tab"), tab: z.enum(["memory", "people", "transcript"]) }),
