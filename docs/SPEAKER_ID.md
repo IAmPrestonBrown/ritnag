@@ -204,3 +204,39 @@ Still open:
 - Owner verification is enrollment-based and probabilistic. Uncertain turns are deliberately ignored for learning.
 - Visitors are not voice-enrolled. Their names come from owner statements, session labels, wording hints and manual selection.
 - Recognition is tuned for one room and mic setup, so re-enroll if the setup changes a lot.
+
+## 11. Target design: owner first, everyone else over time (decided 2026-10-24)
+
+- **The owner is identified from the first word.** Enrolled in onboarding; the only voice that must be recognized immediately, because only the owner can teach or change people.
+- **Everyone else is learned over time.** "That was Bob" turns Bob's already-bound turns into his first voice samples. Later turns that confidently match Bob add to his voiceprint, which persists across sessions.
+- **Every identification carries a certainty.** Below the cutoff, the imp names no one and answers generically: neutral tone, no name, no roast. Speechmatics returns a label but **no match confidence** (its `confidence` field is per word), so certainty is computed by us from:
+  1. voice similarity to each known person;
+  2. the **margin** over the runner-up ("Bob 0.80 / Leon 0.78" is not certain);
+  3. how many confirmed samples that person has;
+  4. whether the Speechmatics label agrees.
+- The owner needs the highest bar; an uncertain "owner" turn already takes the visitor path.
+
+## 12. Bake-off (P1)
+
+Measures the candidates on our own recordings from the demo mic, so we choose with data.
+
+1. **Record:** "Speaker-ID test recordings (P1)" panel at the bottom of the app. Two 20–30 s solo clips per person, plus one or two natural ~2-minute conversations. They go to `data/recordings/<set>/` (gitignored).
+2. **Label:** `npm run bakeoff -- label <set>` transcribes the conversations with Speechmatics and writes `labels.json`, one segment per turn. Set each segment's `truth` to a name, `"other"` (an unenrolled voice) or `"skip"` (overlap/noise). Claude Code can do this from your answers: "show me the segments, I'll tell you who said each".
+3. **Evaluate:** `npm run bakeoff -- eval <set> [--owner Preston] [--sensitivity 0.5]` scores:
+   - the current owner profile;
+   - local embeddings with a certainty gate (score + margin) at several cutoffs;
+   - Speechmatics realtime with every person enrolled from their solo clips.
+
+   It writes `report.md` (overall, by turn length, and every turn).
+
+Metrics: **right name**, **wrong name** (the error that matters), **generic** (declined to name; counts as right for unenrolled voices), owner found, and **others taken as owner**.
+
+**Synthetic smoke run** (macOS voices, *not* real people; it proves the tooling, not the winner):
+
+| System | Right | Wrong | Others taken as owner |
+|---|---|---|---|
+| Local embeddings (any gate) | 89% | 11% | 1 (the unenrolled stranger) |
+| Speechmatics enrolled | 100% | 0% | 0 |
+
+Real results go here once the demo-mic recordings exist.
+
