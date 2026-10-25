@@ -257,6 +257,7 @@ export class Session {
       ownerPersonId: null,
       activeMemories: memories,
       knownUtteranceIds: new Set(recent.map((u) => u.id)),
+      focusMode: this.focusMode,
       now: this.now(),
     });
     const spoken = await this.apply(effect, utterance, generation);

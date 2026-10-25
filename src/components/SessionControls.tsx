@@ -148,6 +148,32 @@ export function CalibrationBar({ snapshot }: { snapshot: Snapshot }) {
   );
 }
 
+/**
+ * "Who just asked?": one click binds the most recent visitor's voice label to a person.
+ * A manual, visible choice — the honest recovery path when diarization is shaky.
+ */
+export function WhoJustAsked({ snapshot }: { snapshot: Snapshot }) {
+  const { connectionId, bindings } = snapshot.session;
+  const last = [...snapshot.transcript].reverse().find((u) => !u.isOwner && u.source === "speech" && u.connectionId === connectionId);
+  if (!connectionId || !last || snapshot.people.length === 0) return null;
+  const current = bindings[`${connectionId}|${last.speakerLabel}`] ?? "";
+  const bind = (personId: string | null) =>
+    post("/api/identity/confirm", { connectionId, speakerLabel: last.speakerLabel, personId });
+  return (
+    <div className="who-chips">
+      <span className="muted">Who just spoke ({last.speakerLabel})?</span>
+      {snapshot.people.map((p) => (
+        <button key={p.id} className={`small ${current === p.id ? "on" : ""}`} onClick={() => void bind(p.id)}>
+          {p.name}
+        </button>
+      ))}
+      <button className={`small ${current === "" ? "on" : ""}`} onClick={() => void bind(null)}>
+        unknown
+      </button>
+    </div>
+  );
+}
+
 /** "Is spk2 Bob?": a visitor named themself. Applied only on an owner click. */
 export function SuggestionBar({ snapshot }: { snapshot: Snapshot }) {
   const s = snapshot.session.suggestions[0];

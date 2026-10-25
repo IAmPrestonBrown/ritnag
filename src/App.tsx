@@ -5,7 +5,7 @@ import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
-import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar } from "./components/SessionControls";
+import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -151,6 +151,7 @@ export function App() {
             micOn={micOn}
             onToggleMic={() => void toggleMic()}
           />
+          <WhoJustAsked snapshot={snapshot} />
           <AlertsPanel snapshot={snapshot} />
         </section>
         <div className="side">

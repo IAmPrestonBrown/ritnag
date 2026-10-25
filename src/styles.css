@@ -87,6 +87,7 @@ input { flex: 1; min-width: 0; }
 .debug .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .debug .bind { display: flex; gap: 4px; align-items: center; font-size: 13px; }
 .error { color: var(--bad); }
+.who-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; font-size: 13px; }
 
 /* ---------- imp ---------- */
 .imp { width: min(320px, 70vw); aspect-ratio: 200 / 220; }

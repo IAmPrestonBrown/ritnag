@@ -10,6 +10,7 @@ const base: Decision = {
   speakerCheck: { addressesOwner: false, selfIdentifiedAs: null },
   isQuestion: false,
   isImportant: false,
+  isActionRequest: false,
   memoryIds: [],
   factualAnswer: null,
   spokenText: null,
@@ -96,7 +97,7 @@ const scripted = (ctx: DecisionContext): Partial<Decision> => {
     }
     return {};
   }
-  if (t.includes("rollback")) return { action: "ALERT_OWNER", isQuestion: true, isImportant: true, alertReason: "approval request" };
+  if (t.includes("rollback")) return { action: "ALERT_OWNER", isQuestion: true, isImportant: true, isActionRequest: true, alertReason: "approval request" };
   const m = ctx.memories[0];
   if (m && t.includes("frontend")) {
     return { action: "ANSWER", isQuestion: true, memoryIds: [m.id], factualAnswer: m.factualAnswer, spokenText: `Yes${ctx.speaker ? `, ${ctx.speaker.name}` : ""}. Pushed.` };
@@ -226,8 +227,37 @@ describe("session pipeline", () => {
     expect(await store.listAllMemories()).toHaveLength(1);
   });
 
+  it("an important unknown question alerts only in focus mode; approvals always alert", async () => {
+    const { session, say, store } = setup((ctx) =>
+      ctx.utterance.text.includes("approve")
+        ? { action: "ANSWER", isQuestion: true, isActionRequest: true, spokenText: "Sure." } // model tries to answer an approval
+        : { action: "ALERT_OWNER", isQuestion: true, isImportant: true, alertReason: "deadline" },
+    );
+    await say("guest-A", "Is the deadline 9 or 10?");
+    expect(await store.listAlerts()).toHaveLength(0);
+    session.setFocus(true);
+    await say("guest-A", "Seriously, is the deadline 9 or 10?");
+    expect(await store.listAlerts()).toHaveLength(1);
+    session.setFocus(false);
+    await say("guest-B", "Can you approve the deploy?");
+    expect(await store.listAlerts()).toHaveLength(2);
+  });
+
+  it("deflects only in focus mode and never speaks a speaker label", async () => {
+    const { session, say, spoken } = setup((ctx) =>
+      ctx.utterance.text.startsWith("Hi")
+        ? { action: "WAIT", isQuestion: true, spokenText: "You'll have to ask Preston that one, guest-C." }
+        : {},
+    );
+    await say("guest-C", "Hi, what's his favorite food?");
+    expect(spoken()).toHaveLength(0);
+    session.setFocus(true);
+    await say("guest-C", "Hi again, what's his favorite food?");
+    expect(spoken()).toEqual(["You'll have to ask Preston that one."]);
+  });
+
   it("an answer citing a memory that wasn't retrieved escalates instead of inventing", async () => {
-    const { say, store, spoken } = setup(() => ({ action: "ANSWER", isQuestion: true, isImportant: true, memoryIds: ["m_fake"], spokenText: "Sure, approved." }));
+    const { say, store, spoken } = setup(() => ({ action: "ANSWER", isQuestion: true, isImportant: true, isActionRequest: true, memoryIds: ["m_fake"], spokenText: "Sure, approved." }));
     await say("guest-A", "Can you approve the production rollback?");
     expect(spoken()).not.toContain("Sure, approved.");
     expect(await store.listAlerts()).toHaveLength(1);
@@ -293,7 +323,7 @@ describe("session pipeline", () => {
       store,
       async () => {
         await gate;
-        return { ...base, action: "ALERT_OWNER", isQuestion: true, isImportant: true, alertReason: "late" };
+        return { ...base, action: "ALERT_OWNER", isQuestion: true, isImportant: true, isActionRequest: true, alertReason: "late" };
       },
       new FakeIndex(),
       { ownerName: "Preston", emit: (e) => events.push(e) },

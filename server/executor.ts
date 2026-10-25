@@ -29,11 +29,15 @@ export interface ExecContext {
   ownerPersonId: string | null;
   activeMemories: Memory[];
   knownUtteranceIds: Set<string>;
+  focusMode: boolean;
   now: number;
 }
 
+// Internal diarization/typed-input labels must never be spoken as if they were names.
+const SPEAKER_LABEL = /,?\s*\b(?:spk\d+|guest-[a-z])\b/gi;
+
 const clip = (s: string | null) => {
-  const t = s?.trim();
+  const t = s?.replace(SPEAKER_LABEL, "").replace(/\s+([.,!?])/g, "$1").trim();
   if (!t) return null;
   return t.length > MAX_SPOKEN_CHARS ? `${t.slice(0, MAX_SPOKEN_CHARS - 1)}…` : t;
 };
@@ -46,6 +50,11 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
   const wait = (spoken: string | null = null): Effect => ({ kind: "wait", spokenText: clip(spoken), isQuestion: d.isQuestion });
 
   if (ctx.role === "visitor") {
+    // Approval/commitment requests always go to the owner. Other unknowns interrupt only in focus mode.
+    const mayAlert = d.isActionRequest || (ctx.focusMode && d.isImportant);
+    const alertOr = (reason: string, spoken: string | null): Effect =>
+      mayAlert ? { kind: "alert", reason, spokenText: clip(spoken) } : wait();
+    if (d.isActionRequest && d.action !== "ALERT_OWNER") return alertOr(d.alertReason ?? "Asked to approve or commit to something", null);
     switch (d.action) {
       case "ANSWER": {
         const active = new Set(ctx.activeMemories.map((m) => m.id));
@@ -53,16 +62,15 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         const spoken = clip(d.spokenText);
         if (ids.length === 0 || !ids.every((id) => active.has(id)) || !spoken) {
           // Unsupported answer: escalate if it mattered, otherwise stay quiet. Never speak an unbacked claim.
-          return d.isImportant
-            ? { kind: "alert", reason: d.alertReason ?? "Question the imp couldn't support from memory", spokenText: null }
-            : wait();
+          return d.isImportant ? alertOr(d.alertReason ?? "Question the imp couldn't support from memory", null) : wait();
         }
         return { kind: "answer", memoryIds: ids, spokenText: spoken };
       }
       case "ALERT_OWNER":
-        return { kind: "alert", reason: d.alertReason?.trim() || "Needs the owner", spokenText: clip(d.spokenText) };
+        return alertOr(d.alertReason?.trim() || "Needs the owner", d.spokenText);
       case "WAIT":
-        return wait(d.spokenText);
+        // deflections ("ask Preston") are a focus-mode behavior; otherwise the owner is right there
+        return wait(ctx.focusMode ? d.spokenText : null);
       default:
         // LEARN / UPDATE_PERSON from a guest are never honored.
         return wait();

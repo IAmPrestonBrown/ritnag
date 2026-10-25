@@ -109,6 +109,8 @@ export const Decision = z.object({
   speakerCheck: SpeakerCheck,
   isQuestion: z.boolean(),
   isImportant: z.boolean(),
+  // asks the imp/owner to approve, authorize, deploy, roll back, pay, promise, or commit to something
+  isActionRequest: z.boolean(),
   memoryIds: z.array(z.string()),
   factualAnswer: z.string().nullable(),
   spokenText: z.string().nullable(),

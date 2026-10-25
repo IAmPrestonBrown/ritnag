@@ -4,7 +4,7 @@ _Last updated 2026-10-24._
 
 ## Works now (verified)
 
-- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (25 tests), and `npm run build` all pass.
+- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (27 tests), and `npm run build` all pass.
 - Typed-input pipeline (`POST /api/turn`) using the same session pipeline speech will use.
 - Session logic covered by tests with a scripted decider and a fake index:
   - Replayed provider events don't answer or count twice.
@@ -42,11 +42,17 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 
 - [~] Slice 2: mic capture → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration; live speaker map. **Code done, needs live test.**
 - [ ] **Speaker ID (teammate):** owner voice onboarding + verifier + wording veto, per `docs/SPEAKER_ID.md`. A live test showed diarization alone mislabels the owner, so this blocks trustworthy voice learning.
+- [x] "Who just spoke?" person chips under the imp (manual, visible binding for the last visitor voice).
 - [x] Wording veto + self-ID suggestions + one-click "not me / that was me" re-attribution (`docs/SPEAKER_ID.md` §6).
 - [x] Test voice button; blocked browser playback now shows an error instead of failing silently.
 - [x] Turn-splitting fix: speaker by majority speech time, flicker absorbed, splits only on real handoffs (`docs/SPEAKER_ID.md` §7).
 - [ ] Slice 3: live Bob scene end to end by voice.
-- [ ] Slice 4: priority + focus escalation by voice; one meeting fact recalled later.
+- [x] Slice 4 logic, verified on real Haiku + Moss (typed): the owner states meeting facts in passing ("demoing at 10:30, table 42, Maya presents architecture"), and later paraphrases are answered from them. The executor now enforces the plan's routing:
+  - approval/commit requests always alert;
+  - other unknown questions alert only in focus mode;
+  - "ask Preston" deflections only happen in focus mode;
+  - speaker labels are never spoken aloud.
+- [ ] Slice 4 by voice: rehearse escalation with a priority person live.
 - [ ] Slice 5: polish, venue rehearsal, video, submission.
 
 ## Honest limitations
