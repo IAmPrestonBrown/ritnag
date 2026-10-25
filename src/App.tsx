@@ -35,7 +35,7 @@ export function App() {
   const toggleMic = async () => {
     if (mic.current.active) return stopMic();
     const socket = conn.current?.socket();
-    if (!socket || socket.readyState !== WebSocket.OPEN) return setError("Not connected to the imp server.");
+    if (!socket || socket.readyState !== WebSocket.OPEN) return setError("Not connected to the Ritnag server.");
     try {
       await mic.current.start(socket); // the click also unlocks audio playback
       setMicOn(true);
@@ -100,12 +100,12 @@ export function App() {
   if (!hasToken) {
     return (
       <main className="gate">
-        <h1>Imp</h1>
+        <h1>Ritnag</h1>
         <p>Open the link the server printed in the terminal (it includes the workspace token).</p>
       </main>
     );
   }
-  if (!snapshot) return <main className="gate">Connecting to imp…</main>;
+  if (!snapshot) return <main className="gate">Connecting to Ritnag…</main>;
 
   // Enrollment phrases must not reach the live pipeline (they include questions).
   const openOnboarding = () => {
@@ -121,7 +121,7 @@ export function App() {
   return (
     <main className={`app ${openAlerts ? "has-alert" : ""}`}>
       <header className="status">
-        <strong>Imp</strong>
+        <strong>Ritnag</strong>
         <span className={`pill ${connected ? "ok" : "bad"}`}>{connected ? "connected" : "reconnecting…"}</span>
         <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
           mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}

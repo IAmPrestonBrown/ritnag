@@ -1,6 +1,6 @@
-# Imp
+# Ritnag
 
-> You answer once. Your imp handles the next interruption, with your memory and its own attitude.
+> You answer once. Ritnag handles the next interruption, with your memory and its own attitude.
 
 A mischievous desktop companion for Cal Hacks 13.0. It listens during a session you start, remembers your answers, recognizes paraphrased repeat questions, answers them aloud in a tone you chose for each person, and gets you when something important comes up that it can't answer.
 

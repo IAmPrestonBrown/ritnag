@@ -143,7 +143,7 @@ export function CalibrationBar({ snapshot }: { snapshot: Snapshot }) {
         </>
       ) : (
         <>
-          Calibrating: {snapshot.ownerName}, say <em>“Hey imp, it's {snapshot.ownerName}.”</em>
+          Calibrating: {snapshot.ownerName}, say <em>“Hey Ritnag, it's {snapshot.ownerName}.”</em>
         </>
       )}
     </div>

@@ -348,7 +348,7 @@ if (isProd) {
 
 server.listen(PORT, HOST, () => {
   const h = health();
-  console.log(`\n  Imp running → http://localhost:${PORT}/#token=${token}`);
+  console.log(`\n  Ritnag running → http://localhost:${PORT}/#token=${token}`);
   console.log(`  storage: local JSON (authoritative) · index: Moss ${h.providers.moss ? "configured" : "NOT configured"}`);
   console.log(`  providers: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "ok" : "missing"}`).join(" ")}`);
   console.log(`  model: ${h.model}`);
