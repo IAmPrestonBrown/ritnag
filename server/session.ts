@@ -3,6 +3,7 @@ import type { MemoryStore } from "./memory";
 import type { Decider, DecisionContext } from "./decision";
 import { validateDecision, type Effect } from "./executor";
 import { resolveOwner, type ActiveVoiceProfile } from "./voice/resolver";
+import { stripNames } from "./anonymize";
 import type { ImpState, IndexStatus, ServerEvent, Snapshot, VoiceStatus } from "../shared/events";
 import type { Memory, Person, Tone, Utterance } from "../shared/schemas";
 
@@ -330,8 +331,11 @@ export class Session {
       focusMode: this.focusMode,
       now: this.now(),
     });
-    const spoken = await this.apply(effect, utterance, generation);
+    const line = await this.apply(effect, utterance, generation);
     if (generation !== this.generation) return;
+    // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
+    const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
+    const spoken = line && stripNames(line, { owner: this.opts.ownerName, others });
 
     const tone: Tone = ctx.identityCertain && role === "visitor" ? speaker?.tone ?? "neutral" : "neutral";
     const responseId = spoken ? this.queueSpeech(spoken, generation, tone) : null;
@@ -387,7 +391,7 @@ export class Session {
         if (generation !== this.generation) return null;
         this.opts.emit({ type: "alert.created", alert, generation });
         this.setState("alert", effect.reason);
-        return effect.spokenText ?? `Hang on, I'm getting ${ownerName}.`;
+        return effect.spokenText ?? "Hang on, flagging that for the owner.";
       }
       case "wait": {
         if (u.isOwner) return effect.spokenText;
@@ -402,7 +406,7 @@ export class Session {
           });
           // Unanswered question: the owner's next reply may answer it.
           this.pendingQuestion = u;
-          if (!effect.spokenText) this.setState(this.listening ? "listening" : "idle", `Hmm. Waiting for ${ownerName} to answer that.`);
+          if (!effect.spokenText) this.setState(this.listening ? "listening" : "idle", "Hmm. Waiting on an answer for that one.");
           // Never offer the owner's own label for "That was Bob…" binding.
           if (!u.personId && !u.isOwner) this.pendingUnknown.set(key(u.connectionId, u.speakerLabel), u);
         }
@@ -412,10 +416,8 @@ export class Session {
         await this.addMemory(effect.memory, effect.supersedesId);
         const answered = this.pendingQuestion;
         this.pendingQuestion = null;
-        // Ask who it was only once the exchange settles, and only for an unidentified asker.
-        if (answered && !answered.personId && this.pendingUnknown.has(key(answered.connectionId, answered.speakerLabel))) {
-          return "Got it. And who was that?";
-        }
+        // Speakers stay anonymous: never ask who someone is. The owner can still volunteer it.
+        void answered;
         return null;
       }
       case "update_person": {
@@ -440,7 +442,7 @@ export class Session {
           }
           if (target) await this.bindSpeaker(target.connectionId, target.speakerLabel, person.id);
         }
-        return effect.spokenText ?? `Noted. ${person.name}.`;
+        return effect.spokenText ?? "Noted.";
       }
     }
   }

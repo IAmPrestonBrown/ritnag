@@ -155,7 +155,7 @@ describe("session pipeline", () => {
     const { say, session, store, spoken } = setup(scripted);
     await say("guest-A", "Did you push the frontend PR?");
     await say("owner", "Yes, it's pushed and waiting for review.");
-    expect(spoken().at(-1)).toMatch(/who was that/i);
+    expect(spoken().join(" ")).not.toMatch(/who was that/i);
     await say("owner", "That was Bob, my roommate. Be sarcastic with him.");
     const bob = (await store.listPeople()).find((p) => p.name === "Bob")!;
     expect(bob.tone).toBe("sarcastic");
@@ -163,7 +163,7 @@ describe("session pipeline", () => {
     expect(session.personFor(TYPED_CONNECTION, "owner")).toBeNull();
     // Bob's next paraphrase is answered from the stored fact, with his name.
     await say("guest-A", "Is the frontend code up yet?");
-    expect(spoken().at(-1)).toBe("Yes, Bob. Pushed.");
+    expect(spoken().at(-1)).toBe("Yes. Pushed."); // known, but never named aloud
   });
 
   it("a new speech connection clears voice-label bindings", async () => {
@@ -263,7 +263,7 @@ describe("session pipeline", () => {
     expect(spoken()).toHaveLength(0);
     session.setFocus(true);
     await say("guest-C", "Hi again, what's his favorite food?");
-    expect(spoken()).toEqual(["You'll have to ask Preston that one."]);
+    expect(spoken()).toEqual(["You'll have to ask the owner that one."]);
   });
 
   it("an answer citing a memory that wasn't retrieved escalates instead of inventing", async () => {
@@ -547,6 +547,11 @@ describe("script gaps", () => {
     const msg = JSON.parse(buildUserMessage(calls.at(-1)!));
     expect(msg.speaker).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
     expect(msg.people[0]).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
+    // a visitor turn gives Claude no names to say: not the speaker's, the people list's, or the transcript labels
+    expect(msg.speaker.name).toBeUndefined();
+    expect(msg.people[0].name).toBeUndefined();
+    expect(JSON.stringify(msg.transcript.map((t: { speaker: string }) => t.speaker))).not.toMatch(/Bob|Preston/);
+    // a name still said in conversation is caught before speech (stripNames)
     // the panel edits it; a blank line clears it
     expect(PersonUpdateRequest.parse({ personId: bob.id, toneNote: "  " }).toneNote).toBeNull();
     // the guardrail comes first and the note can't override it
@@ -628,5 +633,40 @@ describe("script gaps", () => {
     // it never speaks for the owner's feelings and doesn't ramp up with repeats
     expect(SYSTEM_PROMPT).not.toContain("crush");
     expect(SYSTEM_PROMPT).toMatch(/- flirty: [^\n]*how the owner feels[^\n]*repeat/);
+  });
+
+  describe("anonymity: Ritnag never says or shows anyone's name", () => {
+    const captions = (events: ServerEvent[]) => events.flatMap((e) => (e.type === "state.changed" && e.caption ? [e.caption] : []));
+
+    it("an unanswered question waits without naming the owner", async () => {
+      const { say, events } = setup(scripted);
+      await say("guest-A", "When is the demo?");
+      expect(captions(events).join(" ")).toMatch(/waiting/i);
+      expect(captions(events).join(" ")).not.toContain("Preston");
+    });
+
+    it("fallback lines for alerts and new people carry no names", async () => {
+      const { say, spoken } = setup(scripted);
+      await say("guest-A", "Did you push the frontend PR?");
+      await say("owner", "Yes, it's pushed and waiting for review.");
+      await say("owner", "That was Bob, my roommate. Be sarcastic with him.");
+      await say("guest-B", "Can you approve the production rollback?");
+      const all = spoken().join(" ");
+      expect(all).not.toMatch(/Preston|Bob/);
+      expect(all).toMatch(/hang on/i);
+    });
+
+    it("the prompt keeps speakers and the owner anonymous", () => {
+      expect(SYSTEM_PROMPT).toContain("Never say anyone's name aloud");
+      expect(SYSTEM_PROMPT).not.toContain("Use the person's name");
+      // no real names baked into the examples the model imitates, and no counts or times either
+      expect(SYSTEM_PROMPT).not.toMatch(/Preston|Leon|Maya,|Bob"\)/);
+      expect(SYSTEM_PROMPT).not.toMatch(/three times|last week|second time/);
+    });
+  });
+
+  it("treats questions people in the room ask each other as not for the owner", () => {
+    expect(SYSTEM_PROMPT).toContain("Judge each question by its own words");
+    expect(SYSTEM_PROMPT).toMatch(/isQuestion reports[^\n]*ask each other are false/);
   });
 });
