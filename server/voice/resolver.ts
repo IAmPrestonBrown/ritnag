@@ -31,7 +31,9 @@ export interface ResolveInput {
 }
 
 /** Below this, the local voice check says "clearly someone else" even if the provider said owner. */
-const CLEARLY_NOT_OWNER = 0.45;
+// Live: the owner scores ~0.70-0.84, teammates ~0.50-0.65 on the laptop mic. Below this the
+// provider's "owner" label is treated as unconfirmed (answered neutrally, never learned from).
+const CLEARLY_NOT_OWNER = 0.55;
 
 /**
  * Who is speaking, per docs/SPEAKER_ID.md §3. Voice verification is the only automatic owner signal;

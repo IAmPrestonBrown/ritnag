@@ -129,6 +129,7 @@ const session = new Session(store, decider, index, {
   emit,
   voiceProfile: () => voice.activeProfile(),
   voiceStatus: () => voice.status(),
+  builtInFacts: true,
   react: process.env.REACTIONS === "off" ? undefined : (tone) => reactions.pick(tone),
 });
 voice.init();

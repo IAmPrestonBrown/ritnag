@@ -14,6 +14,12 @@ const SEARCH_TOP_K = 8;
 const CONTINUATION_MS = 2500;
 /** Optional "ask the owner" deflections: at most one per person in this window. */
 const DEFLECT_COOLDOWN_MS = 30_000;
+const IMP_NAME = process.env.IMP_NAME || "Ritnag";
+/** Same person name, ignoring case and a surname ("Preston" vs "preston brown"). */
+const sameName = (a: string, b: string) => {
+  const first = (s: string) => s.trim().toLowerCase().split(/\s+/)[0] ?? "";
+  return !!a.trim() && !!b.trim() && first(a) === first(b);
+};
 /** After the owner speaks, the imp stays silent this long: they're in the conversation. */
 const OWNER_ENGAGED_MS = Number(process.env.OWNER_ENGAGED_MS || 8_000);
 /** Moss score at which a stored memory probably answers the question (so a reaction will be followed by one). */
@@ -83,6 +89,8 @@ export interface SessionOptions {
   /** Usable owner voice profile, or null (not enrolled / model not ready): fall back to calibration. */
   voiceProfile?: () => ActiveVoiceProfile | null;
   voiceStatus?: () => VoiceStatus;
+  /** Offer the owner's and the imp's names as citable facts (see builtInFacts). */
+  builtInFacts?: boolean;
   /** Instant in-character reaction for a tone, played while a guest's question is being decided. */
   react?: (tone: Tone) => { key: string; text: string } | null;
 }
@@ -419,7 +427,8 @@ export class Session {
     if (generation !== this.generation) return;
     // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
     const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
-    let spoken = line && stripNames(line, { owner: this.opts.ownerName, others });
+    // Visitors stay anonymous aloud; the owner's name may be said (e.g. when someone asks for it).
+    let spoken = line && stripNames(line, { owner: "", others: others.filter((n) => !sameName(n, this.opts.ownerName)) });
     // A deflection ("ask the owner") is optional talk. While the imp talks the mic is deaf (echo
     // guard) and a new line cuts off the current one, so a chatty imp misses real questions. Never
     // deflect over its own speech, and at most once per person per DEFLECT_COOLDOWN_MS.
@@ -517,6 +526,11 @@ export class Session {
         return null;
       }
       case "update_person": {
+        // "What's your name?" "Uh, Preston." is the owner saying their own name, not naming the guest.
+        if (sameName(effect.name, ownerName)) {
+          console.log(`[imp] ignored naming a person after the owner ("${effect.name}")`);
+          return null;
+        }
         const people = await this.store.listPeople();
         let person: Person | null =
           people.find((p) => p.name.toLowerCase() === effect.name.toLowerCase()) ?? null;
@@ -630,7 +644,32 @@ export class Session {
       const m = byId.get(h.id);
       return m ? [{ ...m, score: h.score }] : [];
     });
-    return { mode: "moss" as const, hits, memories };
+    return { mode: "moss" as const, hits, memories: this.opts.builtInFacts ? [...memories, ...this.builtInFacts()] : memories };
+  }
+
+  /**
+   * Facts the imp always knows: the owner's name and its own. Listed after search results, so they
+   * never outrank a real memory, but "what's your name?" can be answered from a real fact (every
+   * answer must cite one) instead of being dodged.
+   */
+  private builtInFacts(): (Memory & { score: number | null })[] {
+    const fact = (id: string, q: string, a: string) => ({
+      id,
+      kind: "fact" as const,
+      canonicalQuestion: q,
+      factualAnswer: a,
+      sourceUtteranceIds: [],
+      sourcePersonId: null,
+      observedAt: 0,
+      validUntil: null,
+      supersededBy: null,
+      timesAsked: 0,
+      score: null,
+    });
+    return [
+      fact("builtin-owner-name", "What is the owner's name?", `The owner's name is ${this.opts.ownerName}.`),
+      fact("builtin-imp-name", "What is the imp's name?", `The imp's name is ${IMP_NAME}.`),
+    ];
   }
 
   /** Local write first (source of truth), then index. Index failures surface in status, not as lost data. */

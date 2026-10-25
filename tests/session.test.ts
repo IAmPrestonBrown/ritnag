@@ -264,7 +264,19 @@ describe("session pipeline", () => {
     expect(spoken()).toHaveLength(0);
     session.setFocus(true);
     await say("guest-C", "Hi again, what's his favorite food?");
-    expect(spoken()).toEqual(["You'll have to ask the owner that one."]);
+    // the internal label is gone; the owner's name may be said (visitors' names may not)
+    expect(spoken()).toEqual(["You'll have to ask Preston that one."]);
+  });
+
+  it("the owner saying their own name never creates or binds a person called that", async () => {
+    const { say, store } = setup((ctx) =>
+      ctx.role === "owner"
+        ? { action: "UPDATE_PERSON", identityProposal: { name: "Preston", relationship: null, tone: null, priority: null, toneNote: null, refersTo: "pending_unknown" } }
+        : { action: "WAIT", isQuestion: true },
+    );
+    await say("guest-A", "Hey, what's your name?");
+    await say("owner", "Uh. Preston.");
+    expect((await store.listPeople()).map((p) => p.name)).not.toContain("Preston");
   });
 
   it("a visitor's question isn't held up behind a slow owner decision", async () => {
@@ -797,7 +809,7 @@ describe("script gaps", () => {
     });
 
     it("the prompt keeps speakers and the owner anonymous", () => {
-      expect(SYSTEM_PROMPT).toContain("Never say anyone's name aloud");
+      expect(SYSTEM_PROMPT).toContain("Never say a visitor's name aloud");
       expect(SYSTEM_PROMPT).not.toContain("Use the person's name");
       // no real names baked into the examples the model imitates, and no counts or times either
       expect(SYSTEM_PROMPT).not.toMatch(/Preston|Leon|Maya,|Bob"\)/);
