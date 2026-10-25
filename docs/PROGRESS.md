@@ -45,6 +45,14 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 - Fixed tonight: owner announcements to others ("CC me on all outreach emails") were ignored as "talking to someone else"; **Reset demo could crash the server** (Moss push timer touching a closed index).
 - Live-mic speaker ID remains the risk; recover with "that was me" / "who just spoke" and say so.
 
+## Feature gaps closed (2026-10-24, night)
+
+- **"You asked me that last week"**: Claude now gets when this person last asked each memory, already in words ("yesterday", "last week"), and the prompt says to use it rather than guess. Tested with a scripted clock; not yet heard from real Claude.
+- **Flirty tone** (PG, nothing about looks) in the People panel, the prompt, and Cartesia delivery (`flirtatious`). Tested in code; not yet heard from real Claude or Cartesia.
+- **Most asked** list (asked 2+ times, top 5) at the top of the Memory panel. Checked in a browser with seeded data.
+- **Alert chime + system notification** when something escalates, so a focused owner in headphones hears it. Notification permission is asked when focus mode or the mic is turned on. Message text is unit-tested; the chime and notification haven't been triggered by a real alert in a browser yet.
+- Still open: priority people only weigh importance through the prompt; the executor doesn't enforce them.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**
@@ -62,7 +70,7 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
   - speaker labels are never spoken aloud.
 - [ ] Slice 4 by voice: rehearse escalation with a priority person live.
 - [x] Script gaps: per-memory `timesAsked` and per-speaker `askedByThisPerson` in the prompt; owner-set `toneNote` per person (prompt + editable line in the people panel, under the no-slurs/no-appearance rule); memory `context` ("in the 4 pm call") the imp may cite. **Tested only; not yet run live.**
-- [~] Slice 5 stage polish (on top of Projector demo mode): the technical decision line `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` now shows at full contrast in both views (under the plain-English receipt in demo mode), latency in seconds. While thinking, the caption rotates through in-character lines, the imp glows and fidgets, and dots appear over its head, so the decision wait reads as the character. **Checked in a headless browser at 1280×720, in both views, with real typed questions through the real Claude decider (no Moss/Cartesia): the lines cycle once a second and give way to the answer when the decision lands. Not yet seen with the live mic, with voice playing, or on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
+- [~] Slice 5 stage polish (on top of Projector demo mode and the busy thinking state): the technical decision line `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` shows at full contrast in both views (under the plain-English receipt in demo mode, hidden while thinking). Thinking also wags the tail, furrows a brow and shows pulsing dots over the imp. **Checked in a headless browser at 1440×900; not yet seen live or on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
 - [ ] Slice 5: venue rehearsal, video, submission.
 
 ## Honest limitations

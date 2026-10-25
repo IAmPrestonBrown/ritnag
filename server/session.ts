@@ -192,6 +192,11 @@ export class Session {
 
   // ---------- turns ----------
 
+  /** True while the imp has a reply queued or playing (no cooldown): its voice may be in the mic right now. */
+  isSpeaking() {
+    return this.speakingResponseId !== null;
+  }
+
   /** True while the imp's own voice could be in the mic. */
   isMuted() {
     return this.speakingResponseId !== null || this.now() < this.mutedUntil;
@@ -268,7 +273,7 @@ export class Session {
     // visitor path: it can still be answered, neutrally, but it can't teach or rename. Routing it as the
     // owner would silently drop a guest's short question whenever diarization reused the owner's label.
     const role = utterance.isOwner && utterance.ownerCertain ? "owner" : "visitor";
-    const [people, recent, askedByThisPerson] = await Promise.all([
+    const [people, recent, asked] = await Promise.all([
       this.store.listPeople(),
       this.store.recentUtterances(this.id, RECENT_TURNS),
       this.askedBy(role === "visitor" ? utterance.personId : null),
@@ -290,7 +295,9 @@ export class Session {
       recent,
       pendingQuestion: role === "owner" ? this.pendingQuestion : null,
       pendingUnknown: role === "owner" ? this.singlePendingUnknown() : null,
-      askedByThisPerson,
+      askedByThisPerson: asked.counts,
+      lastAskedByThisPerson: asked.lastAt,
+      now: this.now(),
     };
 
     const decision = await this.decider(ctx);
@@ -354,6 +361,7 @@ export class Session {
         await this.store.incrementTimesAsked(effect.memoryIds);
         await this.store.addQuestionEvent({
           sessionId: this.id,
+          createdAt: this.now(),
           utteranceId: u.id,
           personId: u.personId,
           memoryId: effect.memoryIds[0] ?? null,
@@ -364,6 +372,7 @@ export class Session {
       case "alert": {
         await this.store.addQuestionEvent({
           sessionId: this.id,
+          createdAt: this.now(),
           utteranceId: u.id,
           personId: u.personId,
           memoryId: null,
@@ -385,6 +394,7 @@ export class Session {
         if (effect.isQuestion) {
           await this.store.addQuestionEvent({
             sessionId: this.id,
+            createdAt: this.now(),
             utteranceId: u.id,
             personId: u.personId,
             memoryId: null,
@@ -487,19 +497,24 @@ export class Session {
    * Moss finds candidates; the local store decides what they are. Hits that no longer resolve to an
    * active record (superseded, expired, deleted) are dropped, so a stale index can't resurrect a fact.
    */
-  /** memoryId -> how many of this person's earlier questions it answered, carried forward through corrections. */
-  private async askedBy(personId: string | null): Promise<Record<string, number>> {
-    if (!personId) return {};
+  /**
+   * memoryId -> how many of this person's earlier questions it answered, and when they last asked,
+   * carried forward through corrections.
+   */
+  private async askedBy(personId: string | null): Promise<{ counts: Record<string, number>; lastAt: Record<string, number> }> {
+    if (!personId) return { counts: {}, lastAt: {} };
     const [events, all] = await Promise.all([this.store.listQuestionEvents(), this.store.listAllMemories()]);
     const supersededBy = new Map(all.map((m) => [m.id, m.supersededBy]));
     const counts: Record<string, number> = {};
+    const lastAt: Record<string, number> = {};
     for (const e of events) {
       if (e.personId !== personId || !e.memoryId) continue;
       let id = e.memoryId;
       for (let next = supersededBy.get(id); next; next = supersededBy.get(id)) id = next;
       counts[id] = (counts[id] ?? 0) + 1;
+      lastAt[id] = Math.max(lastAt[id] ?? 0, e.createdAt);
     }
-    return counts;
+    return { counts, lastAt };
   }
 
   private async retrieve(query: string) {

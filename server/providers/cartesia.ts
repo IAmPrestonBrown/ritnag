@@ -10,6 +10,7 @@ const DELIVERY: Record<Tone, { emotion?: string; speed: number; volume?: number 
   sarcastic: { emotion: "sarcastic", speed: 1.05 },
   annoyed: { emotion: "angry", speed: 1.12 },
   savage: { emotion: "outraged", speed: 1.1, volume: 1.3 },
+  flirty: { emotion: "flirtatious", speed: 0.98 },
 };
 
 /** A hung request would otherwise leave the imp "thinking" forever; a timeout fails into the normal TTS-error path. */

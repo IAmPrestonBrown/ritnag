@@ -1,8 +1,9 @@
 import type { Snapshot } from "../../shared/events";
 import { TONE_NOTE_MAX, type Person, type Tone } from "../../shared/schemas";
+import { mostAsked } from "../faq";
 import { post } from "../api";
 
-const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"];
+const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage", "flirty"];
 
 type Turn = Snapshot["transcript"][number];
 
@@ -127,6 +128,7 @@ export function PeoplePanel({ snapshot }: { snapshot: Snapshot }) {
 export function MemoryPanel({ snapshot, highlight }: { snapshot: Snapshot; highlight: string[] }) {
   const now = Date.now();
   const active = snapshot.memories.filter((m) => !m.supersededBy && (m.validUntil === null || m.validUntil > now));
+  const faq = mostAsked(snapshot.memories, now);
   const byId = new Map(snapshot.transcript.map((u) => [u.id, u]));
   return (
     <section className="panel">
@@ -135,6 +137,19 @@ export function MemoryPanel({ snapshot, highlight }: { snapshot: Snapshot; highl
         <span className="count total" title="Total repeat questions handled">{snapshot.counts.total} repeats</span>
       </h2>
       {active.length === 0 && <p className="muted">Empty. Answer a question once and it lands here.</p>}
+      {faq.length > 0 && (
+        <div className="faq">
+          <h3>Most asked</h3>
+          <ol>
+            {faq.map((m) => (
+              <li key={m.id} className={highlight.includes(m.id) ? "hit" : ""}>
+                <span className="faq-q">{m.canonicalQuestion ?? m.factualAnswer}</span>
+                <span className="count">{m.timesAsked}×</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <ul className="memories">
         {active
           .slice()

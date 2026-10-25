@@ -30,8 +30,8 @@ export interface MemoryStore {
   ): Promise<Utterance | null>;
   recentUtterances(sessionId: string, limit: number): Promise<Utterance[]>;
 
-  /** Returns null if a question event for this utterance already exists. */
-  addQuestionEvent(e: Omit<QuestionEvent, "id" | "createdAt">): Promise<QuestionEvent | null>;
+  /** Returns null if a question event for this utterance already exists. createdAt defaults to now. */
+  addQuestionEvent(e: Omit<QuestionEvent, "id" | "createdAt"> & { createdAt?: number }): Promise<QuestionEvent | null>;
   listQuestionEvents(): Promise<QuestionEvent[]>;
 
   addAlert(a: Omit<Alert, "id" | "createdAt" | "acknowledgedAt">): Promise<Alert>;
@@ -155,9 +155,9 @@ export class JsonMemoryStore implements MemoryStore {
     return this.data.utterances.filter((u) => u.sessionId === sessionId).slice(-limit);
   }
 
-  async addQuestionEvent(e: Omit<QuestionEvent, "id" | "createdAt">) {
+  async addQuestionEvent(e: Omit<QuestionEvent, "id" | "createdAt"> & { createdAt?: number }) {
     if (this.data.questionEvents.some((x) => x.utteranceId === e.utteranceId)) return null;
-    const ev: QuestionEvent = { ...e, id: `q_${randomUUID().slice(0, 8)}`, createdAt: Date.now() };
+    const ev: QuestionEvent = { ...e, id: `q_${randomUUID().slice(0, 8)}`, createdAt: e.createdAt ?? Date.now() };
     this.data.questionEvents.push(ev);
     this.save();
     return ev;

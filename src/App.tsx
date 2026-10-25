@@ -6,10 +6,13 @@ import { MicCapture } from "./audio/capture";
 import { MicPicker } from "./components/MicPicker";
 import { RecordClips } from "./components/RecordClips";
 import { ImpAvatar } from "./components/ImpAvatar";
+import { useThinkingCaption } from "./components/thinking";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
-import { THINKING_LINE_MS, decisionDetails, thinkingLine } from "./stage";
+import { decisionDetails } from "./stage";
+import { notifyAlert, primeAlerts } from "./notify";
+import type { Person } from "../shared/schemas";
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -22,17 +25,20 @@ export function App() {
   const [mouthOpen, setMouthOpen] = useState(false);
   // A decision is in flight. Ends at decision.completed, not at playback, so a TTS failure never hides the answer.
   const [deciding, setDeciding] = useState(false);
+  // Before any early return: hooks must run in the same order every render.
+  const thinkingCaption = useThinkingCaption(!speaking && deciding);
   const [lastDecision, setLastDecision] = useState<DecisionSummary | null>(null);
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  // the event handler is registered once, so it reads people through a ref
+  const people = useRef<Person[]>([]);
   const player = useRef<Player | null>(null);
   const mic = useRef(new MicCapture());
   const conn = useRef<ReturnType<typeof connectEvents> | null>(null);
   const [micOn, setMicOn] = useState(false);
   const [micLabel, setMicLabel] = useState("");
   const [onboarding, setOnboarding] = useState(false);
-  const [thinkTick, setThinkTick] = useState(0);
   const [demo, setDemo] = useState(() => {
     if (new URLSearchParams(location.search).has("demo")) return true;
     try {
@@ -62,6 +68,7 @@ export function App() {
   };
   const toggleMic = async () => {
     if (mic.current.active) return stopMic();
+    primeAlerts();
     const socket = conn.current?.socket();
     if (!socket || socket.readyState !== WebSocket.OPEN) return setError("Not connected to the Ritnag server.");
     try {
@@ -85,6 +92,7 @@ export function App() {
       switch (e.type) {
         case "snapshot":
           generation.current = e.snapshot.session.generation;
+          people.current = e.snapshot.people;
           setSnapshot(e.snapshot);
           break;
         case "state.changed":
@@ -106,6 +114,9 @@ export function App() {
           setCaption(e.text);
           player.current?.play(e.responseId, e.text).catch((err: Error) => setError(`Voice: ${err.message}`));
           break;
+        case "alert.created":
+          notifyAlert(e.alert, people.current);
+          break;
         case "error":
           setError(e.message);
           // the server ended the transcription stream; release the mic too
@@ -126,15 +137,6 @@ export function App() {
     const t = setInterval(() => setMouthOpen((o) => !o), 130);
     return () => clearInterval(t);
   }, [speaking]);
-
-  // Rotate the thinking caption so the wait reads as the imp working, not lag.
-  const isThinking = !speaking && deciding;
-  useEffect(() => {
-    setThinkTick(0);
-    if (!isThinking) return;
-    const t = setInterval(() => setThinkTick((n) => n + 1), THINKING_LINE_MS);
-    return () => clearInterval(t);
-  }, [isThinking]);
 
   if (!hasToken) {
     return (
@@ -225,12 +227,11 @@ export function App() {
       <div className="layout">
         <section className="stage">
           <ImpAvatar state={shownState} mouthOpen={mouthOpen} />
-          <p className={`caption ${isThinking ? "caption--thinking" : ""}`} aria-live="polite">
-            {isThinking ? thinkingLine(thinkTick) : caption ?? "Waiting for an interruption."}
+          <p className={`caption${thinkingCaption ? " thinking" : ""}`} aria-live="polite">
+            {thinkingCaption ?? caption ?? "Waiting for an interruption."}
           </p>
-          {/* The last decision's receipt and line are stale while the next one is in flight. */}
-          {!isThinking && demo && receipt && <p className="receipt">{receipt}</p>}
-          {!isThinking && lastDecision && (
+          {demo && receipt && !thinkingCaption && <p className="receipt">{receipt}</p>}
+          {lastDecision && !(demo && thinkingCaption) && (
             <p className="decision">
               <span className="decision-action">{lastDecision.action}</span>
               {decisionDetails(lastDecision).map((part) => ` · ${part}`)}

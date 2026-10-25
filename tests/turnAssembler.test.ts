@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TurnAssembler, type AssembledTurn, type DgWord } from "../server/turnAssembler";
+import { TurnAssembler, addMutedTime, mostlyDuringPlayback, type AssembledTurn, type DgWord, type Span } from "../server/turnAssembler";
 
 const words = (speaker: number, start: number, text: string): DgWord[] =>
   text.split(" ").map((w, i) => ({ word: w.toLowerCase(), punctuated_word: w, start: start + i * 0.3, end: start + i * 0.3 + 0.25, speaker }));
@@ -98,5 +98,36 @@ describe("TurnAssembler", () => {
     const { a, turns } = make();
     a.handle(results(words(2, 3.5, "Hello there."), { is_final: true, speech_final: true }));
     expect(turns[0]!.providerEventId).toBe("conn:3.500:2");
+  });
+});
+
+describe("echo suppression by capture time", () => {
+  it("drops a turn spoken while the imp was talking, even if transcribed after", () => {
+    const spans: Span[] = [];
+    addMutedTime(spans, 10, 10.1);
+    addMutedTime(spans, 10.1, 13); // contiguous chunks merge
+    expect(spans).toEqual([[10, 13]]);
+    expect(mostlyDuringPlayback(spans, 10.2, 12.9)).toBe(true); // the imp's own line
+    expect(mostlyDuringPlayback(spans, 12.8, 13.2)).toBe(true); // its tail, within the pad
+    expect(mostlyDuringPlayback(spans, 13.05, 14.8)).toBe(false); // someone starting right as it stops
+    expect(mostlyDuringPlayback(spans, 14, 16)).toBe(false); // someone speaking afterwards
+    expect(mostlyDuringPlayback(spans, 9, 11)).toBe(false); // half before it started: keep
+  });
+
+  it("forgets old spans", () => {
+    const spans: Span[] = [[0, 1]];
+    addMutedTime(spans, 200, 201);
+    expect(spans).toEqual([[200, 201]]);
+  });
+});
+
+describe("word-level echo filter", () => {
+  it("keeps the visitor's question when Deepgram glues it to the imp's echo", () => {
+    const turns: AssembledTurn[] = [];
+    const spans: Span[] = [[0, 2.0]]; // the imp was talking until 2.0 s
+    const a = new TurnAssembler("c", (t) => turns.push(t), () => {}, 10_000, (w) => mostlyDuringPlayback(spans, w.start, w.end));
+    // "That's the one." (echo) then "Is it up?" (Bob), one utterance with one speaker label
+    a.handle(results([...words(1, 1.0, "That's the one."), ...words(1, 2.2, "Is it up?")], { is_final: true, speech_final: true }));
+    expect(turns.map((t) => t.text)).toEqual(["Is it up?"]);
   });
 });
