@@ -29,6 +29,8 @@ export interface VoiceStatus {
   minScorableSec: number | null;
   calibration: { enrollSelfScore: number; selfScore: number | null; impostorScore: number | null } | null;
   enrolling: boolean;
+  /** The transcription provider (Speechmatics) also has the owner's voiceprint. */
+  providerEnrolled?: boolean;
 }
 
 export interface Snapshot {

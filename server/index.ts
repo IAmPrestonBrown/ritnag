@@ -13,6 +13,8 @@ import { synthesize, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
 import { AudioRelay } from "./audioRelay";
+import { speechmaticsConfigured, sttProvider } from "./providers/stt";
+import { speechmaticsVoiceprint } from "./providers/speechmaticsEnroll";
 import { loadWorkspaceToken, tokenMatches } from "./auth";
 import { OwnerVoice } from "./voice/ownerVoice";
 import { SherpaVerifier } from "./voice/sherpa";
@@ -90,6 +92,7 @@ const voice = new OwnerVoice(
   resolve(root, "data/owner-voice.json"),
   OWNER_NAME,
   () => void session.broadcast(), // first called from voice.init(), after session exists
+  speechmaticsConfigured() ? speechmaticsVoiceprint : null,
 );
 const session = new Session(store, decider, index, {
   ownerName: OWNER_NAME,
@@ -316,7 +319,7 @@ server.on("upgrade", (req, socket, head) => {
       }
       const fail = (message: string) => ws.send(JSON.stringify({ type: "error", message, recoverable: true } satisfies ServerEvent));
       if (msg.type === "mic.start") {
-        if (!deepgramConfigured()) return void fail("Deepgram not configured (DEEPGRAM_API_KEY).");
+        if (sttProvider() === "deepgram" && !deepgramConfigured()) return void fail("No transcription configured (SPEECHMATICS_API_KEY or DEEPGRAM_API_KEY).");
         const rate = msg.sampleRate;
         if (msg.encoding !== "linear16" || !Number.isInteger(rate) || rate! < 8000 || rate! > 96000) {
           return void fail("Unsupported mic format; reload the page.");
@@ -359,5 +362,9 @@ server.listen(PORT, HOST, () => {
   console.log(`  storage: local JSON (authoritative) · index: Moss ${h.providers.moss ? "configured" : "NOT configured"}`);
   console.log(`  providers: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "ok" : "missing"}`).join(" ")}`);
   console.log(`  model: ${h.model}`);
-  console.log(`  owner voice: ${h.voice.enrolled ? "enrolled (loading model…)" : "not enrolled — enroll from the UI"}\n`);
+  console.log(`  owner voice: ${h.voice.enrolled ? "enrolled (loading model…)" : "not enrolled — enroll from the UI"}`);
+  const sm = voice.status().providerEnrolled;
+  console.log(
+    `  transcription: ${sttProvider()}${sttProvider() === "speechmatics" ? (sm ? " · owner voiceprint enrolled" : " · owner NOT enrolled with Speechmatics (re-enroll your voice)") : ""}\n`,
+  );
 });

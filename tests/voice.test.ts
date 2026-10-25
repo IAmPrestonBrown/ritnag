@@ -222,3 +222,20 @@ describe("OwnerVoice enrollment", () => {
     expect(again.activeProfile()).not.toBeNull();
   });
 });
+
+describe("resolver with provider identification (Speechmatics)", async () => {
+  const { resolveOwner } = await import("../server/voice/resolver");
+  const base = { source: "speech" as const, asOwner: false, profile: { thresholds: { accept: 0.85, reject: 0.75 }, minScorableSec: 1.2 }, durationSec: 2, speakerLabel: "owner", calibratedOwnerLabel: null, verifiedOwnerLabels: [] };
+  it("trusts the provider's owner label even when the strict local thresholds would reject", () => {
+    expect(resolveOwner({ ...base, score: 0.7, providerOwner: true })).toMatchObject({ isOwner: true, ownerCertain: true, basis: "enrolled" });
+  });
+  it("a clearly different local voice score vetoes certainty (visitor path, nothing learned)", () => {
+    expect(resolveOwner({ ...base, score: 0.3, providerOwner: true })).toMatchObject({ isOwner: true, ownerCertain: false });
+  });
+  it("not labeled owner by the provider means not the owner, whatever the local score", () => {
+    expect(resolveOwner({ ...base, speakerLabel: "S2", score: 0.9, providerOwner: false })).toMatchObject({ isOwner: false });
+  });
+  it("without provider identification, falls back to the local voice rules", () => {
+    expect(resolveOwner({ ...base, score: 0.9, providerOwner: null })).toMatchObject({ isOwner: true, basis: "voice" });
+  });
+});

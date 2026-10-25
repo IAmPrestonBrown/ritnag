@@ -26,7 +26,12 @@ export interface ResolveInput {
   calibratedOwnerLabel: string | null;
   /** Labels of voice-verified owner turns on this connection, oldest first. */
   verifiedOwnerLabels: string[];
+  /** The provider's own identification of the enrolled owner (Speechmatics), or null if it has none. */
+  providerOwner?: boolean | null;
 }
+
+/** Below this, the local voice check says "clearly someone else" even if the provider said owner. */
+const CLEARLY_NOT_OWNER = 0.45;
 
 /**
  * Who is speaking, per docs/SPEAKER_ID.md §3. Voice verification is the only automatic owner signal;
@@ -34,6 +39,16 @@ export interface ResolveInput {
  */
 export function resolveOwner(i: ResolveInput): OwnerResolution {
   if (i.source === "typed") return { isOwner: i.asOwner, ownerCertain: i.asOwner, basis: "typed", score: null };
+
+  // Provider identification (Speechmatics with the owner enrolled) decides, because it judges each
+  // voice across the whole conversation rather than one short clip. The local score can only veto:
+  // if it says this clearly isn't the owner, the turn stays an unconfirmed owner turn (visitor path,
+  // nothing learned) instead of a confirmed one.
+  if (i.providerOwner !== undefined && i.providerOwner !== null) {
+    if (!i.providerOwner) return { isOwner: false, ownerCertain: false, basis: "none", score: i.score };
+    const vetoed = i.score !== null && i.score < CLEARLY_NOT_OWNER;
+    return { isOwner: true, ownerCertain: !vetoed, basis: "enrolled", score: i.score };
+  }
 
   if (!i.profile) {
     // Fallback without enrollment: calibration + manual mapping, as before.

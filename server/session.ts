@@ -32,6 +32,17 @@ export interface IncomingTurn {
   /** Speech only: this turn's audio scored against the owner profile (null = not scored). */
   ownerScore?: number | null;
   durationSec?: number | null;
+  /**
+   * Speech only, when the transcription provider was given the owner's voiceprint (Speechmatics):
+   * whether it labeled this turn as the owner. null = the provider doesn't identify the owner.
+   */
+  providerOwner?: boolean | null;
+  /**
+   * The relay already removed the imp's own words by capture time. Such turns must not be dropped for
+   * merely *arriving* during playback: with a slow transcription provider, a visitor's question can be
+   * finalized while the imp is already answering the previous one.
+   */
+  echoFiltered?: boolean;
 }
 
 interface PendingResponse {
@@ -206,7 +217,7 @@ export class Session {
     const text = turn.text.trim();
     if (!text) return null;
     // Half-duplex: speech captured while the imp talks never reaches learning or answering.
-    if (turn.source === "speech" && this.isMuted()) return null;
+    if (turn.source === "speech" && !turn.echoFiltered && this.isMuted()) return null;
 
     const owner = resolveOwner({
       source: turn.source,
@@ -217,6 +228,7 @@ export class Session {
       speakerLabel: turn.speakerLabel,
       calibratedOwnerLabel: this.ownerSpeakerLabel,
       verifiedOwnerLabels: turn.connectionId === this.speechConnectionId ? this.verifiedOwnerLabels : [],
+      providerOwner: turn.source === "speech" ? turn.providerOwner ?? null : null,
     });
     const isOwner = owner.isOwner;
     const now = this.now();

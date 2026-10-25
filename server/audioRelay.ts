@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type WebSocket from "ws";
-import { openDeepgram } from "./providers/deepgram";
+import { openStt, sttProvider, type SpeakerEnrollment, type SttStream } from "./providers/stt";
 import { TurnAssembler, addMutedTime, mostlyDuringPlayback, type AssembledTurn, type Span } from "./turnAssembler";
 import { PcmRing } from "./voice/pcm";
 import { streamTimeToWall } from "./latency";
 import type { Session } from "./session";
 import type { ServerEvent } from "../shared/events";
 
-const KEEPALIVE_MS = 4000;
 const RING_SECONDS = 60;
 const SLICE_PAD_SEC = 0.15;
 
@@ -15,7 +13,12 @@ const SLICE_PAD_SEC = 0.15;
 export interface TurnScorer {
   scoreTurn(pcm: Float32Array, sampleRate: number): Promise<{ score: number; ms: number } | null>;
   activeProfile(): { minScorableSec: number } | null;
+  /** Enrolled voiceprints for a provider that identifies speakers itself (Speechmatics); empty if none. */
+  providerEnrollment(): SpeakerEnrollment[];
 }
+
+/** The label Speechmatics puts on words from the enrolled owner. */
+export const OWNER_LABEL = "owner";
 
 /**
  * One live microphone stream: browser PCM16 -> Deepgram -> turn assembler -> owner voice score -> session.
@@ -24,14 +27,13 @@ export interface TurnScorer {
  */
 export class AudioRelay {
   readonly connectionId = randomUUID();
-  private dg: WebSocket;
-  private pending: Buffer[] = [];
+  private stt: SttStream;
+  /** True when the provider was given the owner's voiceprint, so its "owner" label is an identification. */
+  private readonly ownerEnrolled: boolean;
   private assembler: TurnAssembler;
   private ring: PcmRing;
   // turns reach the session in order even though scoring is async
   private turns: Promise<void> = Promise.resolve();
-  private keepAlive: NodeJS.Timeout;
-  private lastAudioAt = Date.now();
   // stream-time spans when the imp was speaking (or cooling down); turns spoken then are its own echo
   private mutedSpans: Span[] = [];
   private droppedEcho: string[] = [];
@@ -59,7 +61,9 @@ export class AudioRelay {
         if (session.isMuted()) return; // don't show the imp transcribing itself
         emit({ type: "transcript.partial", speakerLabel, text, generation: session.generation });
       },
-      Number(process.env.TURN_SILENCE_MS || 1200),
+      // Speechmatics ends turns itself (EndOfUtterance) and its finals can arrive >1 s apart, so a short
+      // timer would cut sentences into fragments; the timer is only a fallback there.
+      Number(process.env.TURN_SILENCE_MS || (sttProvider() === "speechmatics" ? 3000 : 1200)),
       // Echo filter per word, by when it was captured: Deepgram can glue the tail of the imp's reply
       // onto the start of a visitor's next question in one utterance, so whole-turn checks fail.
       (w) => {
@@ -69,33 +73,30 @@ export class AudioRelay {
       },
     );
 
-    this.dg = openDeepgram(sampleRate);
-    this.dg.on("open", () => {
-      for (const chunk of this.pending) this.dg.send(chunk);
-      this.pending = [];
-      console.log(`[imp] deepgram connected (${this.connectionId.slice(0, 8)})`);
-    });
-    this.dg.on("message", (data) => {
-      try {
-        this.assembler.handle(JSON.parse(data.toString()));
-      } catch (err) {
-        console.error("[imp] bad deepgram message", err);
-      }
-    });
-    this.dg.on("unexpected-response", (_req, res) => {
-      this.fail(`Deepgram rejected the connection (HTTP ${res.statusCode}). Check DEEPGRAM_API_KEY.`);
-    });
-    this.dg.on("error", (err) => this.fail(`Deepgram error: ${err.message}`));
-    this.dg.on("close", (code) => {
-      if (!this.closed) this.fail(`Transcription disconnected (code ${code}). Start listening again; speakers need re-confirming.`);
-    });
-
-    // Deepgram closes idle streams; the worklet normally keeps data flowing, this covers gaps.
-    this.keepAlive = setInterval(() => {
-      if (this.dg.readyState === this.dg.OPEN && Date.now() - this.lastAudioAt > KEEPALIVE_MS) {
-        this.dg.send(JSON.stringify({ type: "KeepAlive" }));
-      }
-    }, KEEPALIVE_MS);
+    const enrolled = voice.providerEnrollment();
+    this.stt = openStt(
+      sampleRate,
+      {
+        onReady: () =>
+          console.log(
+            `[imp] ${this.stt.name} connected (${this.connectionId.slice(0, 8)})` +
+              (this.stt.name === "speechmatics" ? ` · enrolled: ${enrolled.map((e) => e.label).join(", ") || "none"}` : ""),
+          ),
+        onMessage: (msg) => {
+          try {
+            this.assembler.handle(msg as Parameters<TurnAssembler["handle"]>[0]);
+          } catch (err) {
+            console.error("[imp] bad transcription message", err);
+          }
+        },
+        onFail: (message) => this.fail(message),
+        onClosed: (code) => {
+          if (!this.closed) this.fail(`Transcription disconnected (code ${code}). Start listening again; speakers need re-confirming.`);
+        },
+      },
+      enrolled,
+    );
+    this.ownerEnrolled = this.stt.name === "speechmatics" && enrolled.some((e) => e.label === OWNER_LABEL);
   }
 
   /**
@@ -104,14 +105,12 @@ export class AudioRelay {
    */
   audio(chunk: Buffer) {
     if (this.closed) return;
-    this.lastAudioAt = Date.now();
     const at = this.ring.durationSec;
     this.ring.appendBytes(chunk);
     // Only real playback time: the post-playback cooldown is for late-arriving transcripts, and
     // counting it here would swallow someone who starts talking the moment the imp stops.
     if (this.session.isSpeaking()) addMutedTime(this.mutedSpans, at, this.ring.durationSec);
-    if (this.dg.readyState === this.dg.OPEN) this.dg.send(chunk);
-    else this.pending.push(chunk);
+    this.stt.send(chunk);
   }
 
   /** Score the turn's own audio (when there's a profile and it's long enough), then hand it to the session. */
@@ -142,21 +141,22 @@ export class AudioRelay {
       ...times,
       ownerScore,
       durationSec,
+      // Speechmatics names the enrolled owner itself, judging the whole conversation, not one clip.
+      providerOwner: this.ownerEnrolled ? turn.speakerLabel === OWNER_LABEL : null,
+      echoFiltered: true,
     });
   }
 
   stop() {
     if (this.closed) return;
     this.closed = true;
-    clearInterval(this.keepAlive);
-    if (this.dg.readyState === this.dg.OPEN) this.dg.send(JSON.stringify({ type: "CloseStream" }));
+    this.stt.end();
     this.onEnded(this);
     // Give Deepgram a moment to return final results and flush them while the owner label still
     // applies; only then end the connection (unless a newer relay already replaced it).
     setTimeout(() => {
       this.assembler.flush();
       this.assembler.dispose();
-      this.dg.close();
       if (this.session.speechConnectionId === this.connectionId) this.session.setSpeechConnection(null);
     }, 800).unref();
   }

@@ -1,5 +1,9 @@
 import WebSocket from "ws";
-import type { Wav } from "./wav";
+/** Mono PCM16 clip. */
+export interface Wav {
+  sampleRate: number;
+  pcm: Int16Array;
+}
 
 export interface SmWord {
   content: string;
