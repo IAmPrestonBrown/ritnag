@@ -60,8 +60,8 @@ export function SettingsDrawer({
       <aside className="drawer" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <h2>Settings</h2>
-          <button className="icon" onClick={onClose} aria-label="Close settings">
-            ✕
+          <button className="small" onClick={onClose} aria-label="Close settings">
+            Close
           </button>
         </header>
 

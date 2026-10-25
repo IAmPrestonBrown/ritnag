@@ -67,6 +67,8 @@ export class OwnerVoice {
     private readonly profilePath: string | null,
     private readonly ownerName: string,
     private readonly onChange: () => void = () => {},
+    /** Builds a provider voiceprint (Speechmatics) from the enrollment takes; null when not configured. */
+    private readonly providerVoiceprint: ((takes: PcmTake[]) => Promise<string[]>) | null = null,
   ) {
     if (profilePath && existsSync(profilePath)) {
       try {
@@ -103,6 +105,12 @@ export class OwnerVoice {
   }
 
   /** The profile the resolver may use: enrolled and the model is loaded. */
+  /** Owner voiceprint for a provider that identifies speakers itself. Doesn't need the local model. */
+  providerEnrollment(): { label: string; speaker_identifiers: string[] }[] {
+    const ids = this.profile?.speechmaticsIds;
+    return ids?.length ? [{ label: "owner", speaker_identifiers: ids }] : [];
+  }
+
   activeProfile(): ActiveVoiceProfile | null {
     if (!this.profile || this.model !== "ready") return null;
     return { thresholds: this.profile.thresholds, minScorableSec: this.profile.minScorableSec };
@@ -121,6 +129,7 @@ export class OwnerVoice {
       minScorableSec: p?.minScorableSec ?? null,
       calibration: p?.calibration ?? null,
       enrolling: this.liveEnrollment() !== null,
+      providerEnrolled: Boolean(p?.speechmaticsIds?.length),
     };
   }
 
@@ -196,11 +205,24 @@ export class OwnerVoice {
       speechSec: Math.round(speechSec * 10) / 10,
       calibration: { enrollSelfScore: leaveOneOutScore(embeddings), selfScore: null, impostorScore: null },
     };
+    if (this.providerVoiceprint) {
+      try {
+        profile.speechmaticsIds = await this.providerVoiceprint(takes);
+        console.log(`[imp] Speechmatics voiceprint: ${profile.speechmaticsIds.length} identifier(s)`);
+      } catch (err) {
+        // Local verification still works; live ID falls back to the local score.
+        console.error("[imp] Speechmatics voiceprint failed:", err instanceof Error ? err.message : err);
+      }
+    }
     this.profile = profile;
     this.enrollment = null; // audio is dropped here; only the embedding is kept
     this.save();
     this.onChange();
-    return { thresholds: profile.thresholds, selfScore: profile.calibration.enrollSelfScore };
+    return {
+      thresholds: profile.thresholds,
+      selfScore: profile.calibration.enrollSelfScore,
+      providerEnrolled: Boolean(profile.speechmaticsIds?.length),
+    };
   }
 
   /**

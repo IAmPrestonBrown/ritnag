@@ -21,7 +21,7 @@ export interface Person {
  * against the enrolled profile; stickiness = short/borderline turn carried by the diarization label;
  * label = calibrated diarization label (no voice profile); none = not the owner.
  */
-export type OwnerBasis = "typed" | "manual" | "voice" | "stickiness" | "label" | "none";
+export type OwnerBasis = "typed" | "manual" | "voice" | "enrolled" | "stickiness" | "label" | "none";
 
 export interface Utterance {
   id: string;

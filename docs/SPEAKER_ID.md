@@ -240,3 +240,13 @@ Metrics: **right name**, **wrong name** (the error that matters), **generic** (d
 
 Real results go here once the demo-mic recordings exist.
 
+## 13. Live identification via Speechmatics (2026-10-24, late)
+
+Per-turn embeddings couldn't separate the owner from teammates on one laptop mic, so live identification moved to **Speechmatics realtime**, which diarizes the whole conversation and tags words from enrolled voices with their label.
+
+- **Enrollment:** finishing voice onboarding also sends the takes to Speechmatics and stores the returned voiceprint (`speechmaticsIds`) in `data/owner-voice.json`. **Profiles made before this change have no voiceprint: re-enroll.** The startup log says whether the owner is enrolled with Speechmatics.
+- **Live:** `server/providers/stt.ts` streams to Speechmatics with the owner enrolled as `owner`. Words come back labeled `owner`, `S1`, `S2`…, and EndOfUtterance ends a turn. The relay passes `providerOwner` to the resolver. A Speechmatics `owner` label is a confirmed owner turn, unless the local voice score says it's clearly someone else (< 0.45), in which case it takes the unconfirmed (visitor) path.
+- `STT_PROVIDER=deepgram` switches back; Deepgram stays the fallback when Speechmatics isn't configured.
+- **Verified** with synthetic voices through the real mic path (Daniel enrolled as owner; Rishi as Bob; Samantha as Maya): every owner line was labeled owner and Bob/Maya never were. The owner's answer was learned, the full demo script passed, and nothing leaked back as echo. The Deepgram path had merged owner and Bob into one label on the same audio.
+- **Cost:** about 2 s more latency than Deepgram (first reply audio ~4.8–7 s after a question in rehearsal, before lowering `max_delay` to 0.7 s).
+

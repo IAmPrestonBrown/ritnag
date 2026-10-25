@@ -12,7 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SherpaVerifier } from "../../server/voice/sherpa";
 import { cosine, meanEmbedding, type OwnerProfile } from "../../server/voice/verifier";
-import { transcribe, type SmSpeaker } from "./speechmatics";
+import { transcribe, type SmSpeaker } from "../../server/providers/speechmaticsClip";
 import { gatedPrediction, labelForSpan, pct, segmentWords, tally, type Scored, type Segment, type Tally } from "./score";
 import { readWav, sliceSec, toFloat, type Wav } from "./wav";
 

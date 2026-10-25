@@ -131,3 +131,24 @@ describe("word-level echo filter", () => {
     expect(turns.map((t) => t.text)).toEqual(["Is it up?"]);
   });
 });
+
+describe("Speechmatics adapter", () => {
+  it("turns AddTranscript into assembler results with string speaker labels", async () => {
+    const { smToResults } = await import("../server/providers/stt");
+    const turns: AssembledTurn[] = [];
+    const a = new TurnAssembler("c", (t) => turns.push(t), () => {}, 10_000);
+    const word = (content: string, start: number, speaker: string) => ({ type: "word", start_time: start, end_time: start + 0.3, alternatives: [{ content, speaker }] });
+    a.handle(
+      smToResults({
+        message: "AddTranscript",
+        metadata: { start_time: 0, end_time: 2, transcript: "Is it up? Yes." },
+        results: [word("Is", 0, "S1"), word("it", 0.35, "S1"), word("up", 0.7, "S1"), { type: "punctuation", start_time: 1, end_time: 1, alternatives: [{ content: "?" }] }, word("Yes", 1.6, "owner"), { type: "punctuation", start_time: 1.9, end_time: 1.9, alternatives: [{ content: "." }] }],
+      }),
+    );
+    a.handle({ type: "UtteranceEnd" }); // from Speechmatics EndOfUtterance
+    expect(turns.map((t) => [t.speakerLabel, t.text])).toEqual([
+      ["S1", "Is it up?"],
+      ["owner", "Yes."],
+    ]);
+  });
+});

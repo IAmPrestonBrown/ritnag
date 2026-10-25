@@ -25,6 +25,8 @@ export interface OwnerProfile {
   createdAt: number;
   takes: number;
   speechSec: number;
+  /** Speechmatics voiceprint from the same takes, so live transcription can name the owner itself. */
+  speechmaticsIds?: string[];
   calibration: {
     /** Leave-one-out score of the enrollment takes (optimistic). */
     enrollSelfScore: number;

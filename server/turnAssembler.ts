@@ -13,7 +13,8 @@ export interface DgWord {
   punctuated_word?: string;
   start: number;
   end: number;
-  speaker?: number;
+  /** Deepgram: a number (spk0, spk1…). Speechmatics: a label ("owner", "S1"). */
+  speaker?: number | string;
 }
 
 export interface AssembledTurn {
@@ -25,7 +26,7 @@ export interface AssembledTurn {
   endSec: number;
 }
 
-const label = (speaker: number | undefined) => `spk${speaker ?? 0}`;
+const label = (speaker: number | string | undefined) => (typeof speaker === "string" ? speaker : `spk${speaker ?? 0}`);
 
 /** A run this long is a real speaker, not diarization flicker. */
 const MIN_RUN_SEC = 0.8;
@@ -34,7 +35,7 @@ const MIN_RUN_WORDS = 3;
 const HANDOFF_GAP_SEC = 0.3;
 
 interface Run {
-  speaker: number | undefined;
+  speaker: number | string | undefined;
   words: DgWord[];
 }
 
@@ -42,10 +43,10 @@ const runSec = (r: Run) => (r.words.at(-1)?.end ?? 0) - (r.words[0]?.start ?? 0)
 const significant = (r: Run) => r.words.length >= MIN_RUN_WORDS || runSec(r) >= MIN_RUN_SEC;
 
 /** Speaker with the most speech time across a run's words (absorbed flicker included). */
-function majoritySpeaker(words: DgWord[]): number | undefined {
-  const time = new Map<number | undefined, number>();
+function majoritySpeaker(words: DgWord[]): number | string | undefined {
+  const time = new Map<number | string | undefined, number>();
   for (const w of words) time.set(w.speaker, (time.get(w.speaker) ?? 0) + Math.max(w.end - w.start, 0.01));
-  let best: number | undefined;
+  let best: number | string | undefined;
   let bestTime = -1;
   for (const [speaker, t] of time) if (t > bestTime) [best, bestTime] = [speaker, t];
   return best;
