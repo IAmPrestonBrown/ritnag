@@ -5,7 +5,7 @@ import { z } from "zod";
 import { toInt16 } from "./pcm";
 
 /**
- * Test recordings for the speaker-ID bake-off (docs/WORKSTREAMS.md P1): raw clips from the exact
+ * Test recordings for the speaker-ID bake-off (docs/SPEAKER_ID.md §12): raw clips from the exact
  * live mic path, saved as WAV under data/recordings/<set>/ with a manifest. Dev tooling, local only.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Speaker-ID bake-off (docs/WORKSTREAMS.md P1).
+ * Speaker-ID bake-off (docs/SPEAKER_ID.md §12).
  *
  *   npx tsx scripts/bakeoff/run.ts label <set>   transcribe conversation clips → <set>/labels.json to fill in
  *   npx tsx scripts/bakeoff/run.ts eval  <set>   score the systems against the filled-in labels → <set>/report.md

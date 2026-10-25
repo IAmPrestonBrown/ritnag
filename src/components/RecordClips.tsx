@@ -15,7 +15,7 @@ const TARGET = { solo: "20–30 s, one person, nobody else talking", conversatio
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 
 /**
- * Speaker-ID bake-off recorder (docs/WORKSTREAMS.md P1). Uses the same MicSource as live listening
+ * Speaker-ID bake-off recorder (docs/SPEAKER_ID.md §12). Uses the same MicSource as live listening
  * (same mic choice, same browser processing), so clips match what the scorer actually hears.
  */
 export function RecordClips({ listening }: { listening: boolean }) {
