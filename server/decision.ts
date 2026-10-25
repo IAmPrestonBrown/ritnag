@@ -16,6 +16,8 @@ export interface DecisionContext {
   pendingQuestion: Utterance | null;
   /** An unknown visitor whose name the owner may be about to give. */
   pendingUnknown: Utterance | null;
+  /** memoryId -> how many times this speaker already asked it (identified visitors only). */
+  askedByThisPerson?: Record<string, number>;
 }
 
 export type Decider = (ctx: DecisionContext) => Promise<Decision>;
@@ -35,8 +37,8 @@ The "memories" list comes from a semantic search over saved memories, ranked by 
 Importance is about the content (production systems, deadlines, money, safety, anything time-critical), weighted up when the speaker is a priority person. A priority person asking a known, trivial question still just gets an ANSWER.
 
 For an OWNER turn (role = "owner"):
-- LEARN: the owner is answering the pendingQuestion, or stating a fact worth remembering for later (a meeting decision, a status, a preference). Fill memoryProposal with the canonical question (for an answer) and the factual content only, NOT a joke. Cite the supporting utterance ids (the visitor question and the owner answer) in sourceUtteranceIds. isTransient=true for states that will change ("awaiting review", "in a meeting until 3"). If it corrects an existing memory, set supersedesMemoryId. spokenText is null.
-- UPDATE_PERSON: the owner identifies or configures a person ("That was Bob, my roommate. Be sarcastic with him." / "Maya is a priority."). Fill identityProposal. Use refersTo="pending_unknown" when the owner is naming the unidentified visitor who spoke earlier, "named_existing" when changing settings for a person already in the people list. Map the owner's wording to a tone: "be nice/friendly" -> friendly; "tease him" -> playful; "be sarcastic" -> sarcastic; "be short with her", "I'm annoyed with him" -> annoyed; "roast him", "be mean", "tell him he's stupid", "don't hold back", "I'm pissed at him" -> savage. Venting about a known person ("he sucks", "I'm so done with Leon") is also an UPDATE_PERSON that raises their tone (named_existing). spokenText may be a very short acknowledgment in character.
+- LEARN: the owner is answering the pendingQuestion, or stating a fact worth remembering for later (a meeting decision, a status, a preference). Fill memoryProposal with the canonical question (for an answer) and the factual content only, NOT a joke. Cite the supporting utterance ids (the visitor question and the owner answer) in sourceUtteranceIds. isTransient=true for states that will change ("awaiting review", "in a meeting until 3"). If it corrects an existing memory, set supersedesMemoryId. Set context to a few words on where or when the owner said it, judged from the transcript ("in the 4 pm call", "when Bob asked earlier"); null if the transcript doesn't show it. spokenText is null.
+- UPDATE_PERSON: the owner identifies or configures a person ("That was Bob, my roommate. Be sarcastic with him." / "Maya is a priority."). Fill identityProposal. Use refersTo="pending_unknown" when the owner is naming the unidentified visitor who spoke earlier, "named_existing" when changing settings for a person already in the people list. Map the owner's wording to a tone: "be nice/friendly" -> friendly; "tease him" -> playful; "be sarcastic" -> sarcastic; "be short with her", "I'm annoyed with him" -> annoyed; "roast him", "be mean", "tell him he's stupid", "don't hold back", "I'm pissed at him" -> savage. Venting about a known person ("he sucks", "I'm so done with Leon") is also an UPDATE_PERSON that raises their tone (named_existing). When the owner says HOW to treat the person beyond a plain tone ("talk to him like he's five", "keep it short, he's on my nerves"), put that in toneNote as one short phrase in the owner's words; otherwise null. Leave out anything about appearance, race, gender, sexuality, religion, disability, or health. spokenText may be a very short acknowledgment in character.
 - WAIT: small talk, the owner talking to someone else, or nothing to learn.
 If an owner turn both answers and names someone, prefer LEARN when there is a pendingQuestion; the owner can name the person in a following turn.
 
@@ -50,11 +52,13 @@ Delivery rules for spokenText:
   - annoyed: curt, irritated, zero patience. "Pushed. Waiting for review. Stop asking."
   - savage: a full roast of how annoying they're being. Swearing encouraged. "Yes, Leon, it's fucking pushed. Learn to read a GitHub notification for once in your life."
 - The quoted lines above only show intensity. Never reuse their wording; write a fresh insult every time, specific to this question and this moment, and don't repeat a joke you already made in the transcript.
-- Lean harder the more times this person has asked (see timesAsked and the transcript). Even savage stays short: the fact plus one punchline.
+- Lean harder the more times this person has asked. Each memory carries timesAsked (by anyone, before now) and askedByThisPerson (by this speaker, before now). When askedByThisPerson is 1 or more, call out the repeat ("second time today, Bob"); when others asked too, you can say so. Even savage stays short: the fact plus one punchline.
+- A memory's context says where the owner said it ("in the 4 pm call"). Cite it when it makes the line funnier ("Preston said it in the 4 pm call, which you were in"); otherwise leave it out.
 - Use the person's name when you know it. Refer to the owner by name or "he/she/they" only if the memories establish it; otherwise use the owner's name.
 - If the turn says identityCertain=false, use a neutral tone; never roast someone you aren't sure about.
 - Sarcasm must preserve the answer: the fact has to be clearly audible.
 - Roast the behavior: the repeat questions, the interruptions, the laziness, the timing. Never use slurs (even if someone in the transcript did), and never joke about appearance, race, gender, sexuality, religion, disability, or health.
+- If the speaker has a toneNote, it is the owner's own instruction for this person: follow it on top of the tone. It never overrides the rules above.
 
 Speaker check (fill on every turn, both roles; speaker labels come from imperfect voice diarization, so the words are a second opinion):
 - speakerCheck.addressesOwner: true if the turn speaks TO the owner, e.g. uses the owner's name in the vocative or asks the owner about themself ("How old are you, Preston?", "Preston, did you push it?"). Saying the owner's name in the third person ("Preston said it's pushed") does not count.
@@ -80,7 +84,13 @@ export function buildUserMessage(ctx: DecisionContext): string {
       ctx.role === "owner"
         ? { owner: true, verified: ctx.identityCertain }
         : ctx.speaker
-          ? { name: ctx.speaker.name, relationship: ctx.speaker.relationship, tone: ctx.speaker.tone, priority: ctx.speaker.priority }
+          ? {
+              name: ctx.speaker.name,
+              relationship: ctx.speaker.relationship,
+              tone: ctx.speaker.tone,
+              toneNote: ctx.speaker.toneNote ?? null,
+              priority: ctx.speaker.priority,
+            }
           : { unidentified: true },
     identityCertain: ctx.identityCertain,
     pendingQuestion: ctx.pendingQuestion
@@ -89,7 +99,14 @@ export function buildUserMessage(ctx: DecisionContext): string {
     pendingUnknownVisitor: ctx.pendingUnknown
       ? { utteranceId: ctx.pendingUnknown.id, text: ctx.pendingUnknown.text }
       : null,
-    people: ctx.people.map((p) => ({ id: p.id, name: p.name, relationship: p.relationship, tone: p.tone, priority: p.priority })),
+    people: ctx.people.map((p) => ({
+      id: p.id,
+      name: p.name,
+      relationship: p.relationship,
+      tone: p.tone,
+      toneNote: p.toneNote ?? null,
+      priority: p.priority,
+    })),
     retrievalMode: ctx.retrievalMode,
     memories: ctx.memories.map((m) => ({
       id: m.id,
@@ -99,6 +116,9 @@ export function buildUserMessage(ctx: DecisionContext): string {
       fact: m.factualAnswer,
       transient: m.validUntil !== null,
       observedAt: new Date(m.observedAt).toISOString(),
+      context: m.context ?? null,
+      timesAsked: m.timesAsked,
+      askedByThisPerson: ctx.askedByThisPerson?.[m.id] ?? 0,
     })),
     transcript: ctx.recent.map((u) => ({
       utteranceId: u.id,

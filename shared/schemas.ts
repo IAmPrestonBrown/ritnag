@@ -3,11 +3,15 @@ import { z } from "zod";
 export const Tone = z.enum(["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"]);
 export type Tone = z.infer<typeof Tone>;
 
+export const TONE_NOTE_MAX = 200;
+
 export interface Person {
   id: string;
   name: string;
   relationship: string | null;
   tone: Tone;
+  /** The owner's own words on how to treat this person ("talk to him like he's five"). */
+  toneNote?: string | null;
   priority: boolean;
   ownerConfiguredAt: number;
 }
@@ -51,6 +55,8 @@ export interface Memory {
   validUntil: number | null;
   supersededBy: string | null;
   timesAsked: number;
+  /** Where the owner said it ("in the 4 pm call", "when Bob asked earlier"). */
+  context?: string | null;
 }
 
 export type QuestionClassification = "repeat" | "new" | "alert" | "deflected";
@@ -98,12 +104,16 @@ export const MemoryProposal = z.object({
   isTransient: z.boolean(),
   // id of an existing memory this corrects, if any
   supersedesMemoryId: z.string().nullable(),
+  // where the owner said it ("in the 4 pm call", "when Bob asked earlier"), if the transcript shows it
+  context: z.string().nullable(),
 });
 
 export const IdentityProposal = z.object({
   name: z.string(),
   relationship: z.string().nullable(),
   tone: Tone.nullable(),
+  // the owner's own words on how to treat them, beyond the plain tone
+  toneNote: z.string().nullable(),
   priority: z.boolean().nullable(),
   // which speaker the owner is talking about
   refersTo: z.enum(["pending_unknown", "named_existing"]),
@@ -162,6 +172,14 @@ export const PersonUpdateRequest = z.object({
   tone: Tone.optional(),
   priority: z.boolean().optional(),
   relationship: z.string().nullable().optional(),
+  // blank clears it
+  toneNote: z
+    .string()
+    .trim()
+    .max(TONE_NOTE_MAX)
+    .transform((s) => s || null)
+    .nullable()
+    .optional(),
 });
 
 export const TeachRequest = z.object({

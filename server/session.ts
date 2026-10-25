@@ -268,9 +268,10 @@ export class Session {
     // visitor path: it can still be answered, neutrally, but it can't teach or rename. Routing it as the
     // owner would silently drop a guest's short question whenever diarization reused the owner's label.
     const role = utterance.isOwner && utterance.ownerCertain ? "owner" : "visitor";
-    const [people, recent] = await Promise.all([
+    const [people, recent, askedByThisPerson] = await Promise.all([
       this.store.listPeople(),
       this.store.recentUtterances(this.id, RECENT_TURNS),
+      this.askedBy(role === "visitor" ? utterance.personId : null),
     ]);
     const query = role === "owner" && this.pendingQuestion ? `${this.pendingQuestion.text}\n${utterance.text}` : utterance.text;
     const retrieval = await this.retrieve(query);
@@ -289,6 +290,7 @@ export class Session {
       recent,
       pendingQuestion: role === "owner" ? this.pendingQuestion : null,
       pendingUnknown: role === "owner" ? this.singlePendingUnknown() : null,
+      askedByThisPerson,
     };
 
     const decision = await this.decider(ctx);
@@ -413,6 +415,7 @@ export class Session {
         const patch = {
           relationship: effect.relationship ?? person?.relationship ?? null,
           tone: (effect.tone ?? person?.tone ?? "neutral") as Tone,
+          toneNote: effect.toneNote ?? person?.toneNote ?? null,
           priority: effect.priority ?? person?.priority ?? false,
         };
         person = person
@@ -484,6 +487,21 @@ export class Session {
    * Moss finds candidates; the local store decides what they are. Hits that no longer resolve to an
    * active record (superseded, expired, deleted) are dropped, so a stale index can't resurrect a fact.
    */
+  /** memoryId -> how many of this person's earlier questions it answered, carried forward through corrections. */
+  private async askedBy(personId: string | null): Promise<Record<string, number>> {
+    if (!personId) return {};
+    const [events, all] = await Promise.all([this.store.listQuestionEvents(), this.store.listAllMemories()]);
+    const supersededBy = new Map(all.map((m) => [m.id, m.supersededBy]));
+    const counts: Record<string, number> = {};
+    for (const e of events) {
+      if (e.personId !== personId || !e.memoryId) continue;
+      let id = e.memoryId;
+      for (let next = supersededBy.get(id); next; next = supersededBy.get(id)) id = next;
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   private async retrieve(query: string) {
     const active = await this.store.listActiveMemories(this.now(), 500);
     const hits = await this.index.search(query, SEARCH_TOP_K);

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { JsonMemoryStore } from "../server/memory";
 import { Session, TYPED_CONNECTION, needsDecision, type MemoryIndex } from "../server/session";
-import type { DecisionContext } from "../server/decision";
+import { SYSTEM_PROMPT, buildUserMessage, type DecisionContext } from "../server/decision";
 import type { ServerEvent } from "../shared/events";
-import type { Decision, Memory } from "../shared/schemas";
+import { PersonUpdateRequest, type Decision, type Memory } from "../shared/schemas";
 
 const base: Decision = {
   action: "WAIT",
@@ -88,7 +88,7 @@ const scripted = (ctx: DecisionContext): Partial<Decision> => {
   const t = ctx.utterance.text.toLowerCase();
   if (ctx.role === "owner") {
     if (t.startsWith("that was")) {
-      return { action: "UPDATE_PERSON", identityProposal: { name: "Bob", relationship: "roommate", tone: "sarcastic", priority: null, refersTo: "pending_unknown" } };
+      return { action: "UPDATE_PERSON", identityProposal: { name: "Bob", relationship: "roommate", tone: "sarcastic", toneNote: null, priority: null, refersTo: "pending_unknown" } };
     }
     if (ctx.pendingQuestion) {
       return {
@@ -100,6 +100,7 @@ const scripted = (ctx: DecisionContext): Partial<Decision> => {
           sourceUtteranceIds: [ctx.pendingQuestion.id, ctx.utterance.id],
           isTransient: true,
           supersedesMemoryId: null,
+          context: null,
         },
       };
     }
@@ -131,7 +132,7 @@ describe("session pipeline", () => {
   it("learns the owner's reply, indexes it in Moss, and never learns from a guest", async () => {
     const { say, store, index } = setup((ctx) =>
       ctx.role === "visitor" && ctx.utterance.text.includes("PR is merged")
-        ? { action: "LEARN", memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: "PR is merged", sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null } }
+        ? { action: "LEARN", memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: "PR is merged", sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null, context: null } }
         : scripted(ctx),
     );
     await say("guest-A", "Did you push the frontend PR?");
@@ -194,7 +195,7 @@ describe("session pipeline", () => {
         ? {
             action: "LEARN",
             speakerCheck: { addressesOwner: true, selfIdentifiedAs: null },
-            memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: "Preston is 90", sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null },
+            memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: "Preston is 90", sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null, context: null },
           }
         : {},
     );
@@ -392,7 +393,7 @@ describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
   };
   const learn = (fact: string): Partial<Decision> => ({
     action: "LEARN",
-    memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: fact, sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null },
+    memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: fact, sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null, context: null },
   });
 
   it("with a profile, a new connection skips label calibration", () => {
@@ -491,5 +492,68 @@ describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
     session.setOwnerSpeaker("spk0");
     await say("spk0", "Is it pushed?", speech(0.2));
     expect(calls[0]!.role).toBe("visitor");
+  });
+});
+
+describe("script gaps", () => {
+  it("tells Claude how often this memory was asked, overall and by this person", async () => {
+    const { say, calls } = setup(scripted);
+    await say("guest-A", "Did you push the frontend PR?");
+    await say("owner", "Yes, it's pushed and waiting for review.");
+    await say("owner", "That was Bob, my roommate. Be sarcastic with him.");
+    await say("guest-A", "Is the frontend code up yet?");
+    await say("guest-B", "Is the frontend up?");
+    await say("guest-A", "Is the frontend thing up?");
+    const msg = JSON.parse(buildUserMessage(calls.at(-1)!));
+    expect(msg.memories[0]).toMatchObject({ timesAsked: 2, askedByThisPerson: 1 });
+    // an unidentified asker gets no per-person count
+    expect(JSON.parse(buildUserMessage(calls.at(-2)!)).memories[0]).toMatchObject({ timesAsked: 1, askedByThisPerson: 0 });
+  });
+
+  it("keeps the owner's note on how to treat someone and puts it next to tone", async () => {
+    const { say, store, calls } = setup((ctx) =>
+      ctx.role === "owner" && ctx.utterance.text.startsWith("That was")
+        ? {
+            action: "UPDATE_PERSON",
+            identityProposal: { name: "Bob", relationship: "roommate", tone: "annoyed", toneNote: "talk to him like he's five", priority: null, refersTo: "pending_unknown" },
+          }
+        : scripted(ctx),
+    );
+    await say("guest-A", "Did you push the frontend PR?");
+    await say("owner", "Yes, it's pushed and waiting for review.");
+    await say("owner", "That was Bob. Talk to him like he's five.");
+    const bob = (await store.listPeople()).find((p) => p.name === "Bob")!;
+    expect(bob.toneNote).toBe("talk to him like he's five");
+    await say("guest-A", "Is the frontend code up yet?");
+    const msg = JSON.parse(buildUserMessage(calls.at(-1)!));
+    expect(msg.speaker).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
+    expect(msg.people[0]).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
+    // the panel edits it; a blank line clears it
+    expect(PersonUpdateRequest.parse({ personId: bob.id, toneNote: "  " }).toneNote).toBeNull();
+    // the guardrail comes first and the note can't override it
+    expect(SYSTEM_PROMPT.indexOf("Never use slurs")).toBeLessThan(SYSTEM_PROMPT.indexOf("If the speaker has a toneNote"));
+  });
+
+  it("remembers where the owner said a fact and hands it to Claude", async () => {
+    const { say, store, calls } = setup((ctx) =>
+      ctx.role === "owner"
+        ? {
+            action: "LEARN",
+            memoryProposal: {
+              kind: "fact",
+              canonicalQuestion: "Who gets CC'd on outreach emails?",
+              factualAnswer: "CC Preston on all outreach emails.",
+              context: "in the 4 pm call",
+              sourceUtteranceIds: [],
+              isTransient: false,
+              supersedesMemoryId: null,
+            },
+          }
+        : scripted(ctx),
+    );
+    await say("owner", "Alright everyone, CC me on all the outreach emails.");
+    expect((await store.listAllMemories())[0]!.context).toBe("in the 4 pm call");
+    await say("guest-A", "Who do I CC on those emails?");
+    expect(JSON.parse(buildUserMessage(calls.at(-1)!)).memories[0].context).toBe("in the 4 pm call");
   });
 });

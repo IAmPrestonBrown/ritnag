@@ -13,8 +13,8 @@ import type {
 export interface MemoryStore {
   readonly kind: "local-json";
   listPeople(): Promise<Person[]>;
-  createPerson(p: { name: string; relationship: string | null; tone: Tone; priority: boolean }): Promise<Person>;
-  updatePerson(id: string, patch: Partial<Pick<Person, "name" | "relationship" | "tone" | "priority">>): Promise<Person | null>;
+  createPerson(p: { name: string; relationship: string | null; tone: Tone; toneNote?: string | null; priority: boolean }): Promise<Person>;
+  updatePerson(id: string, patch: Partial<Pick<Person, "name" | "relationship" | "tone" | "toneNote" | "priority">>): Promise<Person | null>;
 
   listActiveMemories(now: number, limit?: number): Promise<Memory[]>;
   listAllMemories(): Promise<Memory[]>;
@@ -79,14 +79,14 @@ export class JsonMemoryStore implements MemoryStore {
     return [...this.data.people];
   }
 
-  async createPerson(p: { name: string; relationship: string | null; tone: Tone; priority: boolean }) {
+  async createPerson(p: { name: string; relationship: string | null; tone: Tone; toneNote?: string | null; priority: boolean }) {
     const person: Person = { id: `p_${randomUUID().slice(0, 8)}`, ...p, ownerConfiguredAt: Date.now() };
     this.data.people.push(person);
     this.save();
     return person;
   }
 
-  async updatePerson(id: string, patch: Partial<Pick<Person, "name" | "relationship" | "tone" | "priority">>) {
+  async updatePerson(id: string, patch: Partial<Pick<Person, "name" | "relationship" | "tone" | "toneNote" | "priority">>) {
     const person = this.data.people.find((p) => p.id === id);
     if (!person) return null;
     Object.assign(person, patch, { ownerConfiguredAt: Date.now() });

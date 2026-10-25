@@ -101,6 +101,7 @@ input { flex: 1; min-width: 0; }
 .people li { display: grid; gap: 4px; }
 .person-head { display: flex; align-items: baseline; gap: 4px; }
 .person-controls { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.tone-note { font-size: 13px; width: 100%; box-sizing: border-box; }
 
 .alerts { border-color: var(--alert); width: 100%; }
 .alerts h2 { color: var(--alert); }
