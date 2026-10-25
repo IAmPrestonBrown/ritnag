@@ -9,7 +9,8 @@
 3. Check the mic: the header dropdown (normal view) shows **MacBook … Microphone**, not an iPhone.
 4. **Reset demo → Wipe memory + people** for a clean start. Your voice profile is kept.
 5. **Test voice** once, so the browser allows audio, and check the volume.
-6. **Start listening.**
+6. **Start listening**, then turn **Focus mode** on and off once. The first click asks Chrome for notification permission; answer it now, not on stage. Allow it, or Block it if you don't want banners during the demo (the alert chime works either way).
+7. Stop and start listening once more so the session starts clean, and you're ready.
 
 Recovery during the demo: if a voice is mislabeled, use **that was me / not me** on the transcript line, or the **Who just spoke?** buttons under the imp. Say out loud that it's a manual correction.
 
