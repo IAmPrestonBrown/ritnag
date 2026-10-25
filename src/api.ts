@@ -41,6 +41,7 @@ async function request<T>(method: string, path: string, init: { body?: BodyInit;
 }
 
 export const del = <T = unknown>(path: string) => request<T>("DELETE", path);
+export const get = <T = unknown>(path: string) => request<T>("GET", path);
 
 /** Mono PCM16 upload (enrollment takes, verify tests). */
 export function postAudio<T = unknown>(path: string, query: Record<string, string | number>, pcm16: Int16Array<ArrayBuffer>) {

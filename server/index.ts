@@ -17,6 +17,7 @@ import { loadWorkspaceToken, tokenMatches } from "./auth";
 import { OwnerVoice } from "./voice/ownerVoice";
 import { SherpaVerifier } from "./voice/sherpa";
 import { voiceRoutes } from "./voice/routes";
+import { RecordingStore, recordingRoutes } from "./voice/recordings";
 import type { Health, ServerEvent } from "../shared/events";
 import {
   AckRequest,
@@ -227,6 +228,7 @@ app.post("/api/identity/suggestion", async (req, res) => {
 });
 
 app.use("/api/voice", voiceRoutes(voice));
+app.use("/api/recordings", recordingRoutes(new RecordingStore(resolve(root, "data/recordings"))));
 
 app.post("/api/session/stop", async (_req, res) => {
   relay?.stop();
