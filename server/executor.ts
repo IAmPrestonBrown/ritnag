@@ -76,6 +76,8 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         // Off by default: the imp only speaks up for questions. BANTER=on brings comebacks back.
         const comeback = d.banter && process.env.BANTER === "on" ? clip(d.spokenText) : null;
         if (comeback) return { kind: "wait", spokenText: comeback, isQuestion: d.isQuestion, banter: true };
+        // An important question nobody can answer is the focus-mode alert case, even when the model picks WAIT.
+        if (ctx.focusMode && d.isQuestion && d.isImportant) return alertOr(d.alertReason?.trim() || "Needs the owner", d.spokenText);
         // deflections ("ask Preston") are a focus-mode behavior; otherwise the owner is right there
         // ...and only for an actual question: other remarks get no reply at all
         return wait(ctx.focusMode && d.isQuestion ? d.spokenText : null);
