@@ -1,4 +1,4 @@
-import { fetchSpeech, post } from "../api";
+import { post, speechStreamUrl } from "../api";
 import { canChooseSpeaker, chosenSpeaker } from "./devices";
 
 /** Plays one response at a time; reports real playback start/end so the avatar and mic gate follow actual audio. */
@@ -12,21 +12,9 @@ export class Player {
   async play(responseId: string, text: string) {
     this.stop();
     this.current = responseId;
-    let blob: Blob;
-    try {
-      blob = await fetchSpeech(responseId);
-    } catch (err) {
-      // Tell the server no audio is coming (a network failure never reaches its TTS-error path),
-      // so the imp and the mic gate leave "thinking". A repeat "ended" is a no-op there.
-      if (this.current === responseId) {
-        this.current = null;
-        void post("/api/playback", { responseId, phase: "ended" });
-      }
-      throw err;
-    }
-    if (this.current !== responseId) return; // superseded or stopped while synthesizing
-    this.url = URL.createObjectURL(blob);
-    const audio = new Audio(this.url);
+    // Streamed: the element starts playing on the first chunk instead of waiting for the whole clip.
+    const audio = new Audio(speechStreamUrl(responseId));
+    audio.preload = "auto";
     this.audio = audio;
     await routeToSpeaker(audio);
     if (this.current !== responseId) return; // stopped while switching outputs
@@ -36,13 +24,15 @@ export class Player {
     };
     const done = () => this.finish(responseId);
     audio.onended = done;
-    audio.onerror = done;
+    audio.onerror = done; // stream failed (TTS error, stale reply): finish() tells the server no audio is coming
     try {
       await audio.play();
     } catch (err) {
       done();
-      // usually autoplay policy: the page needs a click before audio may play
-      throw new Error(`playback blocked (${(err as Error).name}). Click anywhere on the page, then try again.`);
+      if ((err as Error).name === "NotAllowedError") {
+        throw new Error("playback blocked by the browser. Click anywhere on the page, then try again.");
+      }
+      throw new Error("the voice couldn't be played (speech synthesis failed or the reply went stale).");
     }
   }
 

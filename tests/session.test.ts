@@ -266,6 +266,38 @@ describe("session pipeline", () => {
     expect(spoken()).toEqual(["You'll have to ask the owner that one."]);
   });
 
+  it("a visitor's question isn't held up behind a slow owner decision", async () => {
+    const order: string[] = [];
+    const { session, store } = setup(() => ({}));
+    const slowOwner = new Session(
+      store,
+      async (ctx) => {
+        if (ctx.role === "owner") await new Promise((r) => setTimeout(r, 200));
+        order.push(ctx.role);
+        return { ...base };
+      },
+      new FakeIndex(),
+      { ownerName: "Preston", emit: () => {} },
+    );
+    void session;
+    await slowOwner.ingest({ text: "Thinking out loud about lunch plans for the team.", speakerLabel: "owner", connectionId: TYPED_CONNECTION, providerEventId: "o1", source: "typed", asOwner: true });
+    await slowOwner.ingest({ text: "Is the frontend up?", speakerLabel: "guest-A", connectionId: TYPED_CONNECTION, providerEventId: "v1", source: "typed" });
+    await slowOwner.idle();
+    expect(order).toEqual(["visitor", "owner"]);
+  });
+
+  it("a question split in two by transcription gets one reply, not two", async () => {
+    const { session, events } = setup(() => ({ action: "ALERT_OWNER", isQuestion: true, isImportant: true, isActionRequest: true, alertReason: "approval" }));
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    const t = Date.now();
+    const s = { source: "speech" as const, connectionId: "dg-1", asOwner: false };
+    await session.ingest({ ...s, text: "Can you approve the.", speakerLabel: "S3", providerEventId: "f1", startedAt: t, endedAt: t + 1200 });
+    await session.ingest({ ...s, text: "Production rollback?", speakerLabel: "S3", providerEventId: "f2", startedAt: t + 1500, endedAt: t + 2500 });
+    await session.idle();
+    expect(events.filter((e) => e.type === "speech.ready")).toHaveLength(1);
+  });
+
   it("an answer citing a memory that wasn't retrieved escalates instead of inventing", async () => {
     const { say, store, spoken } = setup(() => ({ action: "ANSWER", isQuestion: true, isImportant: true, isActionRequest: true, memoryIds: ["m_fake"], spokenText: "Sure, approved." }));
     await say("guest-A", "Can you approve the production rollback?");
@@ -686,14 +718,16 @@ describe("script gaps", () => {
       return { ...t, ingest };
     };
 
-    it("skips a visitor question that waited too long instead of answering it late", async () => {
+    it("visitor questions don't queue behind each other, so none is dropped as stale", async () => {
       const { ingest, session, calls } = slowRoom();
       await ingest("guest-A", "Did anyone check the build?");
       await ingest("guest-B", "Is the demo at ten?");
       await ingest("guest-C", "Who has the projector cable?");
       await session.idle();
-      // the third question would start 6 s late: dropped, not answered stale
-      expect(calls.map((c) => c.utterance.text)).toEqual(["Did anyone check the build?", "Is the demo at ten?"]);
+      // each is decided as soon as it arrives (visitor lane), so all three get an answer
+      expect(calls.map((c) => c.utterance.text).sort()).toEqual(
+        ["Did anyone check the build?", "Is the demo at ten?", "Who has the projector cable?"].sort(),
+      );
     });
 
     it("never skips an owner turn, however late, because that is how it learns", async () => {
@@ -707,8 +741,9 @@ describe("script gaps", () => {
 
     it("reports latency from when the turn arrived, including time spent waiting", async () => {
       const { ingest, session, events } = slowRoom();
-      await ingest("guest-A", "Did anyone check the build?");
-      await ingest("guest-B", "Is the demo at ten?");
+      // owner turns still run one at a time, so the second waits behind the first
+      await ingest("owner", "The build is green and deployed.");
+      await ingest("owner", "Also the demo moved to ten thirty.");
       await session.idle();
       const latencies = events.flatMap((e) => (e.type === "decision.completed" ? [e.decision.latencyMs] : []));
       expect(latencies).toEqual([3000, 6000]);

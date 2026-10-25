@@ -7,6 +7,7 @@ import type { Session } from "./session";
 import type { ServerEvent } from "../shared/events";
 
 const RING_SECONDS = 60;
+const MAX_RECONNECTS = 4;
 const SLICE_PAD_SEC = 0.15;
 
 /** Scores one turn's audio against the owner profile (OwnerVoice in production). */
@@ -28,6 +29,8 @@ export const OWNER_LABEL = "owner";
 export class AudioRelay {
   readonly connectionId = randomUUID();
   private stt: SttStream;
+  private readonly enrolled: SpeakerEnrollment[];
+  private reconnects = 0;
   /** True when the provider was given the owner's voiceprint, so its "owner" label is an identification. */
   private readonly ownerEnrolled: boolean;
   private assembler: TurnAssembler;
@@ -58,7 +61,7 @@ export class AudioRelay {
         this.turns = this.turns.then(() => this.deliver(turn, times)).catch((err) => console.error("[imp] turn delivery failed", err));
       },
       (speakerLabel, text) => {
-        if (session.isMuted()) return; // don't show the imp transcribing itself
+        if (session.isPlaying()) return; // don't show the imp transcribing itself
         emit({ type: "transcript.partial", speakerLabel, text, generation: session.generation });
       },
       // Speechmatics ends turns itself (EndOfUtterance) and its finals can arrive >1 s apart, so a short
@@ -73,30 +76,71 @@ export class AudioRelay {
       },
     );
 
-    const enrolled = voice.providerEnrollment();
-    this.stt = openStt(
-      sampleRate,
+    this.enrolled = voice.providerEnrollment();
+    this.stt = this.connect();
+    this.ownerEnrolled = this.stt.name === "speechmatics" && this.enrolled.some((e) => e.label === OWNER_LABEL);
+  }
+
+  /**
+   * Opens the transcription stream. Word times from a new provider session start at 0, so they're
+   * shifted by where that session began in our stream: the ring buffer and echo spans keep one clock.
+   */
+  private connect(): SttStream {
+    const offset = this.ring.durationSec;
+    const shift = (msg: unknown) => {
+      const m = msg as { type?: string; start?: number; channel?: { alternatives?: { words?: { start: number; end: number }[] }[] } };
+      if (offset && m.type === "Results") {
+        if (typeof m.start === "number") m.start += offset;
+        for (const w of m.channel?.alternatives?.[0]?.words ?? []) {
+          w.start += offset;
+          w.end += offset;
+        }
+      }
+      return m;
+    };
+    const stream = openStt(
+      this.sampleRate,
       {
-        onReady: () =>
+        onReady: () => {
+          this.reconnects = 0;
           console.log(
-            `[imp] ${this.stt.name} connected (${this.connectionId.slice(0, 8)})` +
-              (this.stt.name === "speechmatics" ? ` · enrolled: ${enrolled.map((e) => e.label).join(", ") || "none"}` : ""),
-          ),
+            `[imp] ${stream.name} connected (${this.connectionId.slice(0, 8)})` +
+              (stream.name === "speechmatics" ? ` · enrolled: ${this.enrolled.map((e) => e.label).join(", ") || "none"}` : ""),
+          );
+        },
         onMessage: (msg) => {
+          if (stream !== this.stt) return; // a replaced session's late messages
           try {
-            this.assembler.handle(msg as Parameters<TurnAssembler["handle"]>[0]);
+            this.assembler.handle(shift(msg) as Parameters<TurnAssembler["handle"]>[0]);
           } catch (err) {
             console.error("[imp] bad transcription message", err);
           }
         },
-        onFail: (message) => this.fail(message),
+        onFail: (message) => stream === this.stt && this.retryOrFail(message),
         onClosed: (code) => {
-          if (!this.closed) this.fail(`Transcription disconnected (code ${code}). Start listening again; speakers need re-confirming.`);
+          if (stream === this.stt && !this.closed) this.retryOrFail(`Transcription disconnected (code ${code}).`);
         },
       },
-      enrolled,
+      this.enrolled,
     );
-    this.ownerEnrolled = this.stt.name === "speechmatics" && enrolled.some((e) => e.label === OWNER_LABEL);
+    return stream;
+  }
+
+  /** Transient provider trouble (session limit, dropped socket) reconnects instead of ending listening. */
+  private retryOrFail(message: string) {
+    if (this.closed) return;
+    if (this.reconnects >= MAX_RECONNECTS) {
+      return this.fail(`${message} Start listening again; speakers need re-confirming.`);
+    }
+    const wait = 1000 * 2 ** this.reconnects++;
+    console.warn(`[imp] ${message} Reconnecting in ${wait / 1000}s (attempt ${this.reconnects}/${MAX_RECONNECTS}).`);
+    const old = this.stt;
+    old.end(true);
+    setTimeout(() => {
+      if (this.closed || this.stt !== old) return;
+      this.assembler.flush(); // finish whatever the old session had
+      this.stt = this.connect();
+    }, wait).unref();
   }
 
   /**
@@ -109,8 +153,11 @@ export class AudioRelay {
     this.ring.appendBytes(chunk);
     // Only real playback time: the post-playback cooldown is for late-arriving transcripts, and
     // counting it here would swallow someone who starts talking the moment the imp stops.
-    if (this.session.isSpeaking()) addMutedTime(this.mutedSpans, at, this.ring.durationSec);
-    this.stt.send(chunk);
+    if (this.session.isPlaying()) addMutedTime(this.mutedSpans, at, this.ring.durationSec);
+    // While the imp's own voice is playing, the provider gets silence of the same length instead of
+    // the mic. Those words would be dropped as echo anyway, and transcribing them made Speechmatics
+    // fall 5-9 s behind in rehearsal. Same sample count, so timestamps stay aligned with the ring.
+    this.stt.send(this.session.isPlaying() ? Buffer.alloc(chunk.length) : chunk);
   }
 
   /** Score the turn's own audio (when there's a profile and it's long enough), then hand it to the session. */
@@ -124,7 +171,7 @@ export class AudioRelay {
     }
     let ownerScore: number | null = null;
     const profile = this.voice.activeProfile();
-    if (profile && durationSec >= profile.minScorableSec && !this.session.isMuted()) {
+    if (profile && durationSec >= profile.minScorableSec && !this.session.isPlaying()) {
       const pcm = this.ring.slice(turn.startSec - SLICE_PAD_SEC, turn.endSec + SLICE_PAD_SEC);
       const r = pcm ? await this.voice.scoreTurn(pcm, this.sampleRate) : null;
       if (r) {
@@ -145,6 +192,12 @@ export class AudioRelay {
       providerOwner: this.ownerEnrolled ? turn.speakerLabel === OWNER_LABEL : null,
       echoFiltered: true,
     });
+  }
+
+  /** Server going down: close the provider session immediately. */
+  shutdown() {
+    this.closed = true;
+    this.stt.end(true);
   }
 
   stop() {

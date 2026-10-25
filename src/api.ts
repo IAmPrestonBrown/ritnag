@@ -49,6 +49,10 @@ export function postAudio<T = unknown>(path: string, query: Record<string, strin
   return request<T>("POST", `${path}?${qs}`, { body: pcm16.buffer, type: "application/octet-stream" });
 }
 
+/** The imp's voice for one reply, streamed (plays as it arrives). */
+export const speechStreamUrl = (responseId: string) =>
+  `/api/speech/stream/${encodeURIComponent(responseId)}?token=${encodeURIComponent(token ?? "")}`;
+
 export async function fetchSpeech(responseId: string): Promise<Blob> {
   const res = await fetch("/api/speech", {
     method: "POST",

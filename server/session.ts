@@ -10,6 +10,8 @@ import type { Memory, Person, Tone, Utterance } from "../shared/schemas";
 export const TYPED_CONNECTION = "typed";
 const RECENT_TURNS = 20;
 const SEARCH_TOP_K = 8;
+/** Same speaker resuming within this gap means the previous turn was a fragment of the same question. */
+const CONTINUATION_MS = 2500;
 const FALLBACK_MEMORIES = 50;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
@@ -108,9 +110,16 @@ export class Session {
   private suggestions = new Map<string, { personId: string; name: string }>();
   // speaker labels of voice-verified owner turns on the current speech connection (stickiness)
   private verifiedOwnerLabels: string[] = [];
-  private queue: Promise<void> = Promise.resolve();
+  // Owner turns run one at a time, in order (learning depends on order). Visitor turns don't wait
+  // behind them: a guest's question shouldn't sit in line while the owner's chatter is classified.
+  private ownerQueue: Promise<void> = Promise.resolve();
+  private inflight = new Set<Promise<void>>();
+  // latest visitor turn per speaker, so a fragment that the speaker immediately continued is dropped
+  private latestVisitorTurn = new Map<string, Utterance>();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
+  /** Set only between the browser's "playback started" and "ended": the imp's voice is in the room. */
+  private playingResponseId: string | null = null;
   private mutedUntil = 0;
   private state: ImpState = "idle";
   private readonly now: () => number;
@@ -194,6 +203,7 @@ export class Session {
     this.generation += 1;
     this.responses.clear();
     this.speakingResponseId = null;
+    this.playingResponseId = null;
     this.mutedUntil = 0;
     this.pendingQuestion = null;
     this.pendingUnknown.clear();
@@ -213,6 +223,14 @@ export class Session {
   /** True while the imp has a reply queued or playing (no cooldown): its voice may be in the mic right now. */
   isSpeaking() {
     return this.speakingResponseId !== null;
+  }
+
+  /**
+   * True only while audio is actually playing. Used for echo filtering and for hiding live text, so
+   * that waiting on speech synthesis doesn't freeze the transcript.
+   */
+  isPlaying() {
+    return this.playingResponseId !== null;
   }
 
   /** True while the imp's own voice could be in the mic. */
@@ -268,14 +286,24 @@ export class Session {
       return utterance;
     }
     void this.broadcast();
-    const enqueuedAt = this.now();
-    this.queue = this.queue.then(() => this.process(utterance, generation, enqueuedAt)).catch((err) => this.fail(err));
+    this.enqueue(utterance, generation);
     return utterance;
   }
 
-  /** Resolves when every queued decision has finished. */
-  idle() {
-    return this.queue;
+  private enqueue(utterance: Utterance, generation: number) {
+    const ownerLane = utterance.isOwner && utterance.ownerCertain;
+    if (!ownerLane) this.latestVisitorTurn.set(key(utterance.connectionId, utterance.speakerLabel), utterance);
+    const enqueuedAt = this.now();
+    const run = ownerLane
+      ? (this.ownerQueue = this.ownerQueue.then(() => this.process(utterance, generation, enqueuedAt)).catch((err) => this.fail(err)))
+      : this.process(utterance, generation, enqueuedAt).catch((err) => this.fail(err));
+    this.inflight.add(run);
+    void run.finally(() => this.inflight.delete(run));
+  }
+
+  /** Resolves when every queued or running decision has finished. */
+  async idle() {
+    while (this.inflight.size) await Promise.all([...this.inflight]);
   }
 
   private async process(utterance: Utterance, generation: number, enqueuedAt = this.now()) {
@@ -328,6 +356,12 @@ export class Session {
 
     const decision = await this.decider(ctx);
     if (generation !== this.generation) return; // Stop/Reset happened mid-call
+    if (role === "visitor" && this.continuedBySameSpeaker(utterance)) {
+      // Transcription split one question in two ("Can you approve the." / "production rollback?").
+      // The newer piece is decided with this one in its transcript, so answer only once, there.
+      console.log(`[imp] superseded by the same speaker's next words: "${utterance.text.slice(0, 50)}"`);
+      return;
+    }
 
     // Wording veto: a voice-labeled "owner" turn that speaks TO the owner probably isn't the owner.
     // It may not teach or rename anything; the transcript offers a one-click correction instead.
@@ -356,7 +390,7 @@ export class Session {
       focusMode: this.focusMode,
       now: this.now(),
     });
-    const line = await this.apply(effect, utterance, generation);
+    const line = await this.apply(effect, utterance, generation, ctx.pendingQuestion);
     if (generation !== this.generation) return;
     // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
     const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
@@ -383,7 +417,7 @@ export class Session {
     await this.broadcast();
   }
 
-  private async apply(effect: Effect, u: Utterance, generation: number): Promise<string | null> {
+  private async apply(effect: Effect, u: Utterance, generation: number, sawPending: Utterance | null = null): Promise<string | null> {
     const ownerName = this.opts.ownerName;
     switch (effect.kind) {
       case "answer": {
@@ -439,10 +473,8 @@ export class Session {
       }
       case "learn": {
         await this.addMemory(effect.memory, effect.supersedesId);
-        const answered = this.pendingQuestion;
-        this.pendingQuestion = null;
-        // Speakers stay anonymous: never ask who someone is. The owner can still volunteer it.
-        void answered;
+        // Clear only the question this decision answered; a newer one may have arrived meanwhile.
+        if (this.pendingQuestion && this.pendingQuestion.id === sawPending?.id) this.pendingQuestion = null;
         return null;
       }
       case "update_person": {
@@ -514,7 +546,7 @@ export class Session {
     }
     const generation = this.generation;
     await this.broadcast();
-    this.queue = this.queue.then(() => this.process(updated, generation)).catch((err) => this.fail(err));
+    this.enqueue(updated, generation);
     return updated;
   }
 
@@ -577,6 +609,13 @@ export class Session {
     return ok;
   }
 
+  /** A newer visitor turn from the same speaker that started within a moment of this one ending. */
+  private continuedBySameSpeaker(u: Utterance): boolean {
+    if (u.source !== "speech") return false;
+    const latest = this.latestVisitorTurn.get(key(u.connectionId, u.speakerLabel));
+    return !!latest && latest.id !== u.id && latest.startedAt - u.endedAt < CONTINUATION_MS;
+  }
+
   private singlePendingUnknown(): Utterance | null {
     if (this.pendingUnknown.size !== 1) return null;
     return [...this.pendingUnknown.values()][0] ?? null;
@@ -618,9 +657,15 @@ export class Session {
     if (!r || r.generation !== this.generation) return;
     if (phase === "started") {
       this.speakingResponseId = responseId;
+      this.playingResponseId = responseId;
+      // a lost "ended" report must not hide the transcript forever
+      setTimeout(() => {
+        if (this.playingResponseId === responseId) this.playingResponseId = null;
+      }, 30_000).unref?.();
       this.setState("speaking", r.text);
     } else {
       if (this.speakingResponseId === responseId) this.speakingResponseId = null;
+      if (this.playingResponseId === responseId) this.playingResponseId = null;
       this.responses.delete(responseId);
       this.mutedUntil = this.now() + (this.opts.playbackCooldownMs ?? 600);
       this.setState(this.listening ? "listening" : "idle", r.text);

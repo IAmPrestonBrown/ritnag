@@ -18,12 +18,11 @@ const CARTESIA_TIMEOUT_MS = 10_000;
 
 export const cartesiaConfigured = () => Boolean(process.env.CARTESIA_API_KEY && process.env.CARTESIA_VOICE_ID);
 
-/** One short, complete MP3 clip. Streaming can come later once playback is reliable. */
-export async function synthesize(text: string, tone: Tone = "neutral"): Promise<{ audio: Buffer; contentType: string }> {
+function request(text: string, tone: Tone, signal: AbortSignal) {
   const delivery = DELIVERY[tone];
-  const res = await fetch("https://api.cartesia.ai/tts/bytes", {
+  return fetch("https://api.cartesia.ai/tts/bytes", {
     method: "POST",
-    signal: AbortSignal.timeout(CARTESIA_TIMEOUT_MS),
+    signal,
     headers: {
       Authorization: `Bearer ${process.env.CARTESIA_API_KEY}`,
       "Cartesia-Version": CARTESIA_VERSION,
@@ -42,9 +41,34 @@ export async function synthesize(text: string, tone: Tone = "neutral"): Promise<
       },
     }),
   });
-  if (!res.ok) {
-    const detail = (await res.text()).slice(0, 300);
-    throw new Error(`Cartesia TTS ${res.status}: ${detail}`);
-  }
+}
+
+async function failed(res: Response) {
+  const detail = (await res.text()).slice(0, 300);
+  return new Error(`Cartesia TTS ${res.status}: ${detail}`);
+}
+
+/** One complete MP3 clip (kept for callers that need the whole file). */
+export async function synthesize(text: string, tone: Tone = "neutral"): Promise<{ audio: Buffer; contentType: string }> {
+  const res = await request(text, tone, AbortSignal.timeout(CARTESIA_TIMEOUT_MS));
+  if (!res.ok) throw await failed(res);
   return { audio: Buffer.from(await res.arrayBuffer()), contentType: "audio/mpeg" };
+}
+
+/**
+ * Streaming MP3: resolves as soon as Cartesia starts responding, so playback can begin on the first
+ * chunk instead of after the whole clip. The timeout only covers getting the response started; an
+ * abort `signal` (the listener went away) cancels the rest.
+ */
+export async function synthesizeStream(text: string, tone: Tone = "neutral", signal?: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+  const started = new AbortController();
+  const timer = setTimeout(() => started.abort(new Error("Cartesia didn't respond in time")), CARTESIA_TIMEOUT_MS);
+  signal?.addEventListener("abort", () => started.abort(signal.reason));
+  try {
+    const res = await request(text, tone, started.signal);
+    if (!res.ok || !res.body) throw await failed(res);
+    return res.body;
+  } finally {
+    clearTimeout(timer);
+  }
 }

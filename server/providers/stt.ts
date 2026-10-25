@@ -9,8 +9,8 @@ export interface SttStream {
   readonly name: "deepgram" | "speechmatics";
   /** Raw mono PCM16 in capture order; buffered until the provider is ready. */
   send(chunk: Buffer): void;
-  /** Flush and close. */
-  end(): void;
+  /** Flush and close. `fast` closes right away (server shutting down) so the provider frees the session. */
+  end(fast?: boolean): void;
 }
 
 export interface SttHandlers {
@@ -63,10 +63,11 @@ function openDeepgramStream(sampleRate: number, h: SttHandlers): SttStream {
       if (ws.readyState === ws.OPEN) ws.send(chunk);
       else pending.push(chunk);
     },
-    end() {
+    end(fast) {
       clearInterval(keepAlive);
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "CloseStream" }));
-      setTimeout(() => ws.close(), 800).unref();
+      if (fast) ws.close();
+      else setTimeout(() => ws.close(), 800).unref();
     },
   };
 }
@@ -111,6 +112,9 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
   const pending: Buffer[] = [];
   let started = false;
   let seq = 0;
+  let sentBytes = 0;
+  const debug = process.env.SPEECHMATICS_DEBUG === "1";
+  const audioSec = () => sentBytes / 2 / sampleRate;
   ws.on("open", () => {
     ws.send(
       JSON.stringify({
@@ -118,7 +122,9 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
         audio_format: { type: "raw", encoding: "pcm_s16le", sample_rate: sampleRate },
         transcription_config: {
           language: "en",
-          operating_point: "enhanced",
+          // Must match the operating point the voiceprints were made with (enrollment uses "enhanced"):
+          // with "standard" the enrolled owner came back as a generic S1 label.
+          operating_point: process.env.SPEECHMATICS_OPERATING_POINT || "enhanced",
           diarization: "speaker",
           enable_partials: true,
           max_delay: Number(process.env.SPEECHMATICS_MAX_DELAY || 0.7),
@@ -142,18 +148,30 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
         for (const c of pending.splice(0)) {
           ws.send(c);
           seq++;
+          sentBytes += c.length;
         }
         h.onReady();
         break;
       case "AddPartialTranscript":
       case "AddTranscript":
+        if (debug && msg.message === "AddTranscript")
+          console.log(`[sm] final  lag ${(audioSec() - (msg.metadata?.end_time ?? 0)).toFixed(2)}s "${(msg.metadata?.transcript ?? "").trim().slice(0, 50)}"`);
         h.onMessage(smToResults(msg));
         break;
       case "EndOfUtterance":
+        if (debug) console.log(`[sm] EOU    at audio ${audioSec().toFixed(2)}s (utterance ended ${msg.metadata?.end_time ?? "?"})`);
         h.onMessage({ type: "UtteranceEnd" });
         break;
+      case "AudioAdded":
+        break;
+      default:
+        if (debug) console.log(`[sm] ${msg.message}`);
       case "Error":
+        if (debug) console.log(`[sm] Error ${JSON.stringify(msg)}`);
         h.onFail(`Speechmatics: ${msg.type}: ${msg.reason}`);
+        break;
+      case "Info":
+        if (debug) console.log(`[sm] Info ${JSON.stringify(msg)}`);
         break;
       case "Warning":
         console.warn(`[imp] speechmatics warning: ${msg.type}: ${msg.reason}`);
@@ -169,10 +187,12 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
       if (started && ws.readyState === ws.OPEN) {
         ws.send(chunk);
         seq++;
+        sentBytes += chunk.length;
       } else pending.push(chunk);
     },
-    end() {
+    end(fast) {
       if (ws.readyState === ws.OPEN && started) ws.send(JSON.stringify({ message: "EndOfStream", last_seq_no: seq }));
+      if (fast || ws.readyState === ws.CONNECTING) return void ws.terminate();
       // EndOfTranscript arrives after the final results; close shortly after either way.
       setTimeout(() => ws.close(), 1500).unref();
     },

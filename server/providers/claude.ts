@@ -13,6 +13,9 @@ type Effort = "low" | "medium" | "high";
  * One bounded structured-output call. Retries once on unparseable output;
  * never returns partially parsed data.
  */
+/** Token usage of the most recent decision (for latency/caching diagnostics). */
+export let lastUsage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | null = null;
+
 export async function claudeDecide(system: string, user: string): Promise<Decision> {
   const effort = (process.env.ANTHROPIC_EFFORT as Effort) || "low";
   let lastError: unknown;
@@ -31,10 +34,12 @@ export async function claudeDecide(system: string, user: string): Promise<Decisi
         max_tokens: 2000,
         ...fallback,
         ...thinking,
-        system,
+        // The instructions are identical on every turn: cache them so each call only processes the new turn.
+        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: user }],
         output_config: { effort, format: betaZodOutputFormat(Decision) },
       });
+      lastUsage = response.usage;
       if (response.stop_reason === "refusal") throw new Error("Claude declined this turn");
       if (!response.parsed_output) throw new Error(`Unparseable decision (stop_reason=${response.stop_reason})`);
       // Local validation on top of the provider's schema enforcement.

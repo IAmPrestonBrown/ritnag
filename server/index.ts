@@ -9,7 +9,7 @@ import { JsonMemoryStore } from "./memory";
 import { Session, TYPED_CONNECTION } from "./session";
 import { SYSTEM_PROMPT, buildUserMessage, type Decider } from "./decision";
 import { claudeDecide, anthropicModel } from "./providers/claude";
-import { synthesize, cartesiaConfigured } from "./providers/cartesia";
+import { synthesizeStream, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
 import { AudioRelay } from "./audioRelay";
@@ -38,6 +38,14 @@ import {
 
 // A stray async error in a provider (index sync, a socket) must not take the live demo down.
 process.on("unhandledRejection", (err) => console.error("[imp] unhandled rejection:", err));
+// On restart (every file save in dev) or Ctrl+C, close the transcription session so the provider
+// frees it now; otherwise it holds one of the account's few concurrent sessions until it times out.
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.once(sig, () => {
+    relay?.shutdown();
+    setTimeout(() => process.exit(0), 150).unref();
+  });
+}
 process.on("uncaughtException", (err) => console.error("[imp] uncaught exception:", err));
 
 const PORT = Number(process.env.PORT || 3000);
@@ -51,21 +59,33 @@ const store = new JsonMemoryStore(resolve(root, "data/imp-memory.json"));
 
 const clients = new Set<WebSocket>();
 
-// Synthesis starts the moment a reply is decided, in parallel with the event reaching the browser.
-type Clip = { audio: Buffer; contentType: string };
-const clips = new Map<string, Promise<Clip>>();
+// Synthesis starts the moment a reply is decided, in parallel with the event reaching the browser,
+// and streams: the browser starts playing on the first chunk instead of after the whole clip.
+type Tone = Parameters<typeof synthesizeStream>[1];
+type PendingSpeech = { stream: Promise<ReadableStream<Uint8Array>>; abort: AbortController; t0: number };
+const pendingSpeech = new Map<string, PendingSpeech>();
 const latency = new LatencyTrace();
-const startSynthesis = (responseId: string, text: string, tone: Parameters<typeof synthesize>[1]) => {
-  if (!cartesiaConfigured() || clips.has(responseId)) return;
-  const t0 = Date.now();
-  const p = synthesize(text, tone).then((c) => {
-    latency.ttsReady(responseId, Date.now());
-    console.log(`[imp] tts ready in ${Date.now() - t0}ms (${tone})`);
-    return c;
-  });
-  p.catch(() => {}); // surfaced when the browser requests it
-  clips.set(responseId, p);
-  setTimeout(() => clips.delete(responseId), 60_000).unref();
+const startSynthesis = (responseId: string, text: string, tone: Tone) => {
+  if (!cartesiaConfigured() || pendingSpeech.has(responseId)) return;
+  const abort = new AbortController();
+  const stream = synthesizeStream(text, tone, abort.signal);
+  stream.catch(() => {}); // surfaced when the browser requests it
+  pendingSpeech.set(responseId, { stream, abort, t0: Date.now() });
+  // never requested (stale, page closed): release the upstream request
+  setTimeout(() => {
+    const p = pendingSpeech.get(responseId);
+    if (p) {
+      p.abort.abort();
+      pendingSpeech.delete(responseId);
+    }
+  }, 60_000).unref();
+};
+/** One consumer per reply: hands over the in-flight synthesis (starting it if needed). */
+const takeSpeech = (responseId: string, text: string, tone: Tone) => {
+  startSynthesis(responseId, text, tone);
+  const p = pendingSpeech.get(responseId)!;
+  pendingSpeech.delete(responseId);
+  return p;
 };
 
 const emit = (e: ServerEvent) => {
@@ -120,6 +140,48 @@ const health = (): Health => ({
 });
 app.get("/api/health", (_req, res) => {
   res.json(health());
+});
+
+// The imp's voice, streamed. An <audio> element can't send headers, so this one route takes the
+// workspace token as a query parameter (like the WebSocket does).
+app.get("/api/speech/stream/:id", async (req, res) => {
+  if (!tokenMatches(token, typeof req.query.token === "string" ? req.query.token : null)) return void res.status(401).end();
+  const id = req.params.id;
+  const speech = session.speechFor(id);
+  if (!speech) return void res.status(410).end();
+  if (!cartesiaConfigured()) {
+    session.playback(id, "ended"); // no audio is coming; leave the thinking state
+    return void res.status(503).end();
+  }
+  const p = takeSpeech(id, speech.text, speech.tone);
+  req.on("close", () => {
+    if (!res.writableEnded) p.abort.abort(); // Stop speaking, or the tab went away
+  });
+  try {
+    const body = await p.stream;
+    // Re-check: a Reset during synthesis must not let this play.
+    if (!session.speechText(id)) {
+      p.abort.abort();
+      return void res.status(410).end();
+    }
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store");
+    let first = true;
+    for await (const chunk of body) {
+      if (first) {
+        first = false;
+        latency.ttsReady(id, Date.now());
+        console.log(`[imp] tts first audio in ${Date.now() - p.t0}ms (${speech.tone})`);
+      }
+      if (!res.write(chunk)) await new Promise((r) => res.once("drain", r));
+    }
+    res.end();
+  } catch (err) {
+    if (res.headersSent) return void res.end();
+    session.playback(id, "ended");
+    console.error("[imp] TTS failed:", err instanceof Error ? err.message : err);
+    res.status(502).end();
+  }
 });
 
 // Everything else under /api needs the workspace token.
@@ -263,12 +325,12 @@ app.post("/api/speech", async (req, res) => {
     return void res.status(503).json({ error: "Cartesia not configured" });
   }
   try {
-    startSynthesis(b.responseId, speech.text, speech.tone);
-    const { audio, contentType } = await clips.get(b.responseId)!;
-    clips.delete(b.responseId);
+    const chunks: Uint8Array[] = [];
+    for await (const c of await takeSpeech(b.responseId, speech.text, speech.tone).stream) chunks.push(c);
+    latency.ttsReady(b.responseId, Date.now());
     // Re-check: a Reset during synthesis must not let this play.
     if (!session.speechText(b.responseId)) return void res.status(410).json({ error: "stale response" });
-    res.setHeader("Content-Type", contentType).send(audio);
+    res.setHeader("Content-Type", "audio/mpeg").send(Buffer.concat(chunks));
   } catch (err) {
     session.playback(b.responseId, "ended");
     res.status(502).json({ error: err instanceof Error ? err.message : "TTS failed" });
