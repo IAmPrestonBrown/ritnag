@@ -6,9 +6,9 @@ export const anthropicModel = () => process.env.ANTHROPIC_MODEL || "claude-opus-
 
 let client: Anthropic | null = null;
 // Bounded: a hung request fails into the operator's Retry instead of leaving the imp "thinking". The SDK
-// retries dropped connections and 429/5xx once, quickly; a timeout is not retried (worst case ~10 s).
+// retries dropped connections and 429/5xx (twice, with short backoff); the session's 25 s deadline caps it all.
 const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS || 10_000);
-export const getClient = () => (client ??= new Anthropic({ timeout: CLAUDE_TIMEOUT_MS, maxRetries: 1 }));
+export const getClient = () => (client ??= new Anthropic({ timeout: CLAUDE_TIMEOUT_MS, maxRetries: 2 }));
 
 type Effort = "low" | "medium" | "high";
 

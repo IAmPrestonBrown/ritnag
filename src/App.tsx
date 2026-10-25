@@ -9,7 +9,8 @@ import { AlertsPanel } from "./components/Panels";
 import { CalibrationBar, PrimaryControls, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { SettingsDrawer } from "./components/SettingsDrawer";
 import { SideTabs } from "./components/SideTabs";
-import { DemoPanel } from "./components/DemoPanel";
+import { HoldToTalk, MicMeter } from "./components/DemoControls";
+import { usePushToTalk } from "./pushToTalk";
 import { VoiceOnboarding } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
 import { chime, notifyAlert, primeAlerts } from "./notify";
@@ -59,6 +60,9 @@ export function App() {
       return false;
     }
   });
+
+  // Demo Mode input: push-to-talk / pinned speaker (src/pushToTalk.ts)
+  const ptt = usePushToTalk(mic.current, micOn, demo);
 
   // Projector view: D toggles it (ignored while typing in a field).
   useEffect(() => {
@@ -295,7 +299,8 @@ export function App() {
           : lastDecision.action === "UPDATE_PERSON"
             ? "Updated who's who"
             : null;
-  const receipt = stage.active ? stage.receipt : liveReceipt;
+  const fellBack = lastDecision?.retrieval.mode === "unavailable" && lastDecision.action !== "WAIT";
+  const receipt = stage.active ? stage.receipt : liveReceipt && fellBack ? `${liveReceipt} (Moss unavailable: searched recent memories)` : liveReceipt;
   const shownCaption = stage.active ? stage.caption : caption;
   const shownPartial = stage.active ? stage.partial : partial;
   const shownError = stage.active ? stage.error : error;
@@ -308,6 +313,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">Ritnag</div>
         <span className={`status-chip ${listening ? "live" : ""} ${!connected ? "bad" : ""}`}>{statusText}</span>
+        {micOn && !stage.active && <MicMeter mic={mic.current} />}
         {snapshot.session.focusMode && <span className="status-chip focus">Focus mode</span>}
         <div className="topbar-end">
           {!voice.enrolled && !demo && (
@@ -367,37 +373,31 @@ export function App() {
           <p className="receipt" title={lastDecision && !stage.active ? `${lastDecision.action} · ${decisionDetails(lastDecision).join(" · ")}` : undefined}>
             {!thinkingCaption && receipt ? receipt : "\u00a0"}
           </p>
-          <PrimaryControls
-            snapshot={snapshot}
-            micOn={micOn || (stage.active && listening)}
-            speaking={speaking}
-            onToggleMic={() => void toggleMic()}
-            onStopSpeaking={() => player.current?.stop()}
-          />
+          {ptt.ptt && micOn && !stage.active ? (
+            <HoldToTalk
+              ptt={ptt}
+              ownerName={snapshot.ownerName}
+              guestName={snapshot.people.find((p) => p.id === ptt.guestId)?.name ?? null}
+              speaking={speaking}
+              onStopSpeaking={() => player.current?.stop()}
+            />
+          ) : (
+            <PrimaryControls
+              snapshot={snapshot}
+              micOn={micOn || (stage.active && listening)}
+              speaking={speaking}
+              onToggleMic={() => void toggleMic()}
+              onStopSpeaking={() => player.current?.stop()}
+            />
+          )}
           <WhoJustAsked snapshot={snapshot} />
         </section>
-        {demo && !stage.active ? (
-          <DemoPanel
-            snapshot={snapshot}
-            mic={mic.current}
-            micOn={micOn}
-            micLabel={micLabel}
-            speaking={speaking}
-            partial={shownPartial}
-            lastDecision={lastDecision}
-            onToggleMic={() => void toggleMic()}
-            onRestartListening={() => void restartListening()}
-            onStopSpeaking={() => player.current?.stop()}
-            onError={setError}
-          />
-        ) : (
-          <SideTabs
-            snapshot={snapshot}
-            highlight={stage.active ? stage.highlight : lastDecision?.memoryIds ?? []}
-            partial={shownPartial}
-            tab={stage.tab}
-          />
-        )}
+        <SideTabs
+          snapshot={snapshot}
+          highlight={stage.active ? stage.highlight : lastDecision?.memoryIds ?? []}
+          partial={shownPartial}
+          tab={stage.tab}
+        />
       </div>
 
       <Toasts toasts={toasts.toasts} onLeave={toasts.leave} onRemove={toasts.remove} />
@@ -410,6 +410,8 @@ export function App() {
           micLabel={micLabel}
           demo={demo}
           onDemo={setDemo}
+          ptt={ptt}
+          onRestartListening={() => void restartListening()}
           onEnroll={() => {
             setSettings(false);
             openOnboarding();

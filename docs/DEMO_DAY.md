@@ -29,7 +29,8 @@ Required in `.env` (names only):
 | `SPEECHMATICS_API_KEY` (or `DEEPGRAM_API_KEY`) | Speech-to-text; Speechmatics also identifies the enrolled owner |
 | `OWNER_NAME` | The owner's first name (shown and spoken) |
 
-Optional: `ANTHROPIC_MODEL`, `MOSS_INDEX_NAME`, `PORT`, `CLAUDE_TIMEOUT_MS` (default 10000).
+Optional: `ANTHROPIC_MODEL`, `MOSS_INDEX_NAME`, `PORT`, `CLAUDE_TIMEOUT_MS` (default 10000), `NET_FAMILY=auto`
+(see below; leave unset).
 
 **Before the first judge**
 
@@ -39,21 +40,24 @@ Optional: `ANTHROPIC_MODEL`, `MOSS_INDEX_NAME`, `PORT`, `CLAUDE_TIMEOUT_MS` (def
 2. Settings (top right) → **Audio**: under **mic**, pick the mic you'll use (a USB or headset mic held close beats
    the laptop mic in a loud hall); under **voice out**, pick the speaker the judge will hear.
 3. If the owner isn't enrolled on this laptop: Settings → **Owner voice** → enroll (about 90 s, in a quiet corner).
-4. Demo Mode → **Turn on the mic**. Talk: the **Mic** level bar must move. **Speech-to-text** must say
-   `speechmatics · connected`.
-5. **Check providers**: Claude, Cartesia, Moss and Speechmatics must all say `connected` (a real request to each, not
-   just "a key is set").
-6. **Start fresh demo → B · Prepared example (Bob)**. Wait for the green **Ready** line.
+4. Click **Start listening**. Talk: the small level bar next to "Listening" must move. Settings → Status →
+   **Speech-to-text** must say `speechmatics · connected`.
+5. Settings → Demo → **Check providers**: claude, cartesia, moss and speechmatics must all show ✓ (a real request to
+   each, not just "a key is set").
+6. Settings → Demo → reset → **Prepared (Bob)**. Wait for "Ready.".
 
 ## 2. How input works in a loud room
 
-- **Push-to-talk (default).** The mic stays open but nothing is heard unless a button is held. Hold
-  **Owner speaking** (or the **O** key) while the owner talks; hold **Guest speaking** (or **G**) while the judge or
-  teammate playing the guest talks. Release when they finish. Holding a button *is* the identity: those lines are
-  tagged **manual** in the transcript. Pick **Guest is: Bob** to say which person the guest is (also manual).
-- **Continuous.** Open mic. Leave it on **Automatic (voice ID)**, or pin **Owner speaking** / **Guest speaking** if
-  voice ID is struggling.
-- **Typed fallback.** Type what was said and press **Guest asks** or **Owner says**. It goes through the same memory,
+Demo Mode looks like the normal app. The operator controls live in **Settings → Demo**.
+
+- **Push-to-talk (default).** Once listening, the button under the imp becomes two buttons: the owner's name and
+  **Guest** (or the guest's name). The mic stays open but nothing is heard unless one is held. Hold the owner's
+  button (or the **O** key) while the owner talks; hold **Guest** (or **G**) while the judge or teammate playing the
+  guest talks. Release when they finish. Holding a button *is* the identity: those lines are tagged **manual** in the
+  transcript. Settings → Demo → **guest is** says which person the guest is (also manual).
+- **Continuous** (Settings → Demo → input). Open mic. Leave **speaker** on **voice ID**, or pin **owner** / **guest**
+  if voice ID is struggling.
+- **Typed fallback** (Settings → Demo → type). Type what was said and press **as guest** or **as owner**. It goes through the same memory,
   Moss, Claude and Cartesia pipeline and is tagged **typed**. Use it whenever the mic or the room fails.
 - **Stop speaking** cuts the imp off. Only one reply plays at a time, and the imp's own voice never reaches
   transcription (silence is sent while it talks; in push-to-talk nothing is sent unless a button is held).
@@ -79,26 +83,27 @@ Optional: `ANTHROPIC_MODEL`, `MOSS_INDEX_NAME`, `PORT`, `CLAUDE_TIMEOUT_MS` (def
 
 ## 4. Between judges
 
-1. **Start fresh demo → A or B.** This clears only demo records, cancels anything still being decided or queued to
+1. Settings → Demo → reset → **Learn live** or **Prepared (Bob)**. This clears only demo records, cancels anything still being decided or queued to
    speak, drops words still in flight from the last run, and rebuilds the demo Moss index from the records.
-2. Wait for the green **Ready** line. If it says **Not ready**, read the reason (usually Moss; see below).
-3. Glance at the status rows: Mic moving, Speech-to-text connected.
+2. Wait for "Ready.". If it says **Not ready**, read the reason (usually Moss; see below).
+3. Glance at the level bar next to "Listening", and Settings → Status → Speech-to-text.
 
-**Restart listening** starts a new transcription session and keeps memories. Use it when transcription looks stuck.
+Settings → Demo → **Restart listening** starts a new transcription session and keeps memories. Use it when transcription looks stuck.
 
 ## 5. When something breaks
 
 | Symptom | What to do |
 | --- | --- |
-| Mic level bar flat | Settings → Audio → mic (pick the right one; never the iPhone). Restart listening. Check the macOS input level. Meanwhile use typed input |
-| Speech-to-text `reconnecting` / `failed` | It retries itself (1, 2, 4, 8 s). After a reconnect the speaker names are cleared on purpose: use Owner / Guest speaking. If it ends in `failed`, click Turn on the mic again. Meanwhile use typed input |
+| Level bar next to "Listening" flat | Settings → Audio → mic (pick the right one; never the iPhone). Restart listening. Check the macOS input level. Meanwhile use typed input |
+| Speech-to-text `reconnecting` / `failed` | It retries itself (1, 2, 4, 8 s). After a reconnect the speaker names are cleared on purpose: hold the owner / guest buttons. If it ends in `failed`, click Start listening again. Meanwhile use typed input |
 | Top bar says "Reconnecting…" | The page lost the server: it retries itself. If the terminal shows the server died, run `npm run demo` again (demo data is kept) |
 | Venue wifi is bad | Switch the laptop to a phone hotspot, then Restart listening and Check providers |
-| Retrieval row says `fallback: …` | Moss didn't answer: Ritnag still answers from recent memories and says so. Settings → Status → Rebuild memory index, or Start fresh demo again |
-| Ready line says "Moss index not ready" | Wait a few seconds and Start fresh demo again. The demo still works on the fallback |
+| Receipt says "(Moss unavailable: searched recent memories)" | Moss didn't answer: Ritnag still answers from recent memories and says so. Settings → Status → Rebuild memory index, or Start fresh demo again |
+| Reset says "Not ready: Moss index not ready" | Wait a few seconds and Start fresh demo again. The demo still works on the fallback |
 | Red banner "Couldn't decide on …" | Claude failed or took longer than 25 s. Click **Retry** (nothing was saved for that turn, so retrying can't double-count). Check providers |
 | Imp silent but the answer shows as the caption | Cartesia failed: the generated answer stays on screen; read it out. Settings → Session → Test voice. Check providers |
-| Imp answers the wrong person / owner labeled as guest | Use the Owner / Guest speaking buttons; the transcript's "that was me / not me" buttons re-run a turn |
+| Imp answers the wrong person / owner labeled as guest | Hold the owner / guest buttons; the transcript's "that was me / not me" buttons re-run a turn |
+| Claude / Cartesia fail intermittently ("Connection error", "fetch failed") | The server already prefers IPv4 and drops idle connections (both fixed real failures on a hotspot). Check providers; switch networks if it persists. Only if IPv6 is the *only* working path, set `NET_FAMILY=auto` |
 | Everything is on fire | Show the demo video (see below), then restart with `npm run demo` |
 
 **Keep the demo video downloaded on this laptop (and a phone), not only online.** Venue wifi can't be trusted.
@@ -110,12 +115,12 @@ Say this plainly if asked.
 - **Live, every turn:** transcription (Speechmatics), memory search (Moss), the decision and the words (Claude), the
   voice (Cartesia). No answer is hardcoded or prerecorded. The only prerecorded audio is 14 short reaction clips
   ("Hmm.", "Ugh.") that Cartesia synthesizes at startup and that play while the real answer is being decided.
-- **Manual:** anything said while an Owner / Guest speaking button was held, and the "Guest is" choice. Those lines
+- **Manual:** anything said while the owner / guest button was held, and the "guest is" choice. Those lines
   are tagged **manual**. Typed input is tagged **typed**.
 - **Seeded:** only the Prepared example (Bob, relationship "sample guest", and one memory with context
   "prepared example"). Learn live starts empty.
 - **Fallback:** if Moss doesn't answer within 3 s, retrieval falls back to recent memories and the Retrieval row says
-  so. If Speechmatics isn't configured, Deepgram transcribes (it doesn't identify the owner).
+  so (in the receipt line). If Speechmatics isn't configured, Deepgram transcribes (it doesn't identify the owner).
 - **Not claimed:** reliability in a noisy venue (untested with the real mic until we try it there), and recognizing
   visitors across sessions (verified only with synthetic voices).
 - **The demo video's UI** is a scripted re-enactment synced to the footage (`docs/DIRECTOR.md`). Every behavior it

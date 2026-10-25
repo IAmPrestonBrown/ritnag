@@ -94,6 +94,13 @@ Verified on the demo MacBook against the real providers (Speechmatics, Moss, Cla
 - Fixed along the way: a Speechmatics message-type fall-through that turned any unrecognized message into a
   reconnect; a trailing fragment ("Did") cancelling the finished question before it.
 
+- **Networking** (found on the demo laptop's hotspot): IPv6 is unreachable there, and Node's happy-eyeballs gave
+  IPv4 only 250 ms before switching to it, so 12 of 30 fresh connections to Anthropic failed (ETIMEDOUT); with IPv4
+  first and no fallback, 29 of 30 (one real 8 s stall). Pooled connections are also dropped after 4 s idle. Real
+  decisions after 40 s idle gaps: 6/6 (before: 2 of 5 failed).
+- Demo Mode redesigned to look like normal mode: hold-to-talk buttons under the imp, a small level bar by
+  "Listening", and the operator controls in Settings → Demo.
+
 **Not verified:** the real microphone in a noisy venue, a real speaker-to-mic feedback loop at venue volume, and
 a multi-hour soak. Test those at the venue before the first judge.
 

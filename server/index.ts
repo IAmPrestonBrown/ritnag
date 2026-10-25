@@ -1,5 +1,8 @@
 import "dotenv/config";
+import { setDefaultResultOrder } from "node:dns";
+import { setDefaultAutoSelectFamily } from "node:net";
 import { mkdirSync } from "node:fs";
+import { Agent, setGlobalDispatcher } from "undici";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -61,6 +64,19 @@ const root = resolve(import.meta.dirname, "..");
 const isProd = process.env.NODE_ENV === "production";
 
 const token = loadWorkspaceToken(resolve(root, "data/workspace-token"));
+// Networks with a broken IPv6 route (this demo laptop's wifi, many venues): Node's happy-eyeballs gives IPv4
+// only 250 ms before switching to the dead IPv6 address, so a slightly slow connect failed with ETIMEDOUT
+// (seen as intermittent Claude "Connection error" and Cartesia "fetch failed"). Use IPv4 first and stay on it.
+// NET_FAMILY=auto restores Node's default.
+if (process.env.NET_FAMILY !== "auto") {
+  setDefaultResultOrder("ipv4first");
+  setDefaultAutoSelectFamily(false);
+}
+// Phone hotspots and venue NATs silently drop idle TCP connections. Reusing one after an idle gap sent the
+// request into a dead socket and it hung until the timeout (seen as 25 s Claude stalls after quiet periods).
+// So: drop pooled connections after 4 s idle, and give up on a connect after 8 s (the SDK then retries).
+setGlobalDispatcher(new Agent({ keepAliveTimeout: 4_000, keepAliveMaxTimeout: 4_000, connect: { timeout: 8_000 } }));
+
 // Demo profile (npm run demo): its own records file and its own Moss index, so "Start fresh demo" can
 // wipe demo data without touching everyday memories or any other index.
 const PROFILE: "demo" | "everyday" = process.env.IMP_PROFILE === "demo" ? "demo" : "everyday";

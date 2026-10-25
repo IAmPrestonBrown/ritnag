@@ -1040,7 +1040,11 @@ export class Session {
 
   private fail(err: unknown, u?: Utterance, generation?: number) {
     const message = err instanceof Error ? err.message : String(err);
-    const cause = err instanceof Error && err.cause ? ` (cause: ${err.cause instanceof Error ? `${(err.cause as { code?: string }).code ?? ""} ${err.cause.message}` : String(err.cause)})` : "";
+    // the SDK's "Connection error" wraps undici's "fetch failed", which wraps the real reason (ECONNRESET…)
+    const chain: string[] = [];
+    for (let c: unknown = err instanceof Error ? err.cause : null; c && chain.length < 4; c = c instanceof Error ? c.cause : null)
+      chain.push(c instanceof Error ? `${(c as { code?: string }).code ?? ""} ${c.message}`.trim() : String(c));
+    const cause = chain.length ? ` (cause: ${chain.join(" ← ")})` : "";
     console.error(`[imp] decision failed: ${message}${cause}`);
     if (generation !== undefined && generation !== this.generation) return; // reset meanwhile: nothing to show
     if (u) {

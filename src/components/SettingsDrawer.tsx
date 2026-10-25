@@ -7,6 +7,8 @@ import { RecordClips } from "./RecordClips";
 import { VoicePanel } from "./VoiceOnboarding";
 import { AdvancedControls, DebugDrawer, SpeakerMap } from "./SessionControls";
 import { DEFAULT_SCRIPT, director, loadScript, parseScript, saveScript, useStage } from "../director";
+import { DemoSettings } from "./DemoControls";
+import type { PushToTalk } from "../pushToTalk";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -28,6 +30,8 @@ export function SettingsDrawer({
   micLabel,
   demo,
   onDemo,
+  ptt,
+  onRestartListening,
   onEnroll,
   onClose,
   onError,
@@ -38,6 +42,8 @@ export function SettingsDrawer({
   micLabel: string;
   demo: boolean;
   onDemo: (on: boolean) => void;
+  ptt: PushToTalk;
+  onRestartListening: () => void;
   onEnroll: () => void;
   onClose: () => void;
   onError: (message: string) => void;
@@ -52,6 +58,11 @@ export function SettingsDrawer({
   const voice = snapshot.session.voice;
   const status: [string, boolean, string][] = [
     ["Server", connected, connected ? "connected" : "reconnecting…"],
+    [
+      "Speech-to-text",
+      snapshot.session.stt?.state === "connected",
+      !snapshot.session.stt || snapshot.session.stt.state === "off" ? "off" : `${snapshot.session.stt.provider} · ${snapshot.session.stt.state}${snapshot.session.stt.detail ? ` · ${snapshot.session.stt.detail}` : ""}`,
+    ],
     ["Memory search (Moss)", idx.configured && idx.ready && !idx.lastError, !idx.configured ? "not configured" : idx.lastError ? idx.lastError : idx.ready ? `${idx.docCount} docs${idx.pushPending ? " · syncing" : ""}` : "starting…"],
     ["Owner voice", voice.active, voice.active ? "verifying" : voice.enrolled ? "loading…" : "not enrolled"],
   ];
@@ -73,6 +84,12 @@ export function SettingsDrawer({
             <p className="muted small-print">Wearing headphones? Send the imp's voice to a room speaker; alerts stay in your headphones.</p>
           </div>
         </Section>
+
+        {demo && (
+          <Section title="Demo">
+            <DemoSettings snapshot={snapshot} ptt={ptt} onRestartListening={onRestartListening} onError={onError} />
+          </Section>
+        )}
 
         <Section title="Status">
           <ul className="status-list">
