@@ -1,0 +1,109 @@
+:root {
+  --bg: #17131c;
+  --panel: #221c2a;
+  --line: #3a3045;
+  --text: #f1eaf5;
+  --muted: #a397ad;
+  --accent: #ff7a45;
+  --alert: #ffcc33;
+  --ok: #5fd39a;
+  --bad: #ff5d6c;
+  --imp-skin: #e2483d;
+  --imp-skin-dark: #b8322b;
+  --imp-horn: #f5e6c8;
+  --imp-ink: #2a1215;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
+button, select, input { font: inherit; color: inherit; }
+button { background: #2f2738; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); color: #1a0f0a; border-color: var(--accent); }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button.small { padding: 2px 8px; font-size: 13px; }
+select, input { background: #1b1621; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+input { flex: 1; min-width: 0; }
+.muted { color: var(--muted); }
+
+.gate { display: grid; place-items: center; min-height: 100vh; text-align: center; padding: 16px; }
+
+.app { padding: 12px 16px 24px; max-width: 1400px; margin: 0 auto; }
+.status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.pill { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+.pill.live { color: #fff; background: var(--bad); border-color: var(--bad); }
+.banner { border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.banner.warn { background: #3b3014; color: var(--alert); }
+.banner.err { background: #3b1620; color: #ffb3bb; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+.side { display: grid; gap: 12px; align-content: start; }
+
+.stage { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.caption { font-size: 26px; font-weight: 600; text-align: center; min-height: 2.6em; max-width: 30ch; margin: 0; }
+.decision { font-size: 13px; text-align: center; margin: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; }
+.panel ul, .panel ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
+.count.total { font-size: 13px; }
+
+.transcript li { display: grid; grid-template-columns: 9.5em 1fr auto; gap: 8px; font-size: 14px; }
+.transcript .who { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transcript li.owner .who { color: var(--ok); }
+.transcript li.known .who { color: var(--accent); }
+.transcript li.partial { opacity: 0.6; font-style: italic; }
+.tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; align-self: center; }
+
+.memories li { border-left: 3px solid var(--line); padding: 4px 8px; transition: background 0.4s, border-color 0.4s; animation: arrive 0.6s ease-out; }
+.memories li.hit { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.memories .q { color: var(--muted); font-size: 13px; }
+.memories .meta { color: var(--muted); font-size: 12px; }
+@keyframes arrive { from { background: color-mix(in srgb, var(--ok) 30%, transparent); } }
+
+.people li { display: grid; gap: 4px; }
+.person-head { display: flex; align-items: baseline; gap: 4px; }
+.person-controls { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+
+.alerts { border-color: var(--alert); width: 100%; }
+.alerts h2 { color: var(--alert); }
+.alerts li { display: grid; gap: 4px; }
+.has-alert .stage .caption { color: var(--alert); }
+
+.debug { margin-top: 16px; }
+.debug summary { cursor: pointer; color: var(--muted); }
+.debug .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.debug .bind { display: flex; gap: 4px; align-items: center; font-size: 13px; }
+.error { color: var(--bad); }
+
+/* ---------- imp ---------- */
+.imp { width: min(320px, 70vw); aspect-ratio: 200 / 220; }
+.imp svg { width: 100%; height: 100%; overflow: visible; }
+.imp-body { transform-origin: 100px 200px; animation: bob 3.2s ease-in-out infinite; }
+.imp-tail { transform-origin: 140px 170px; animation: wag 2.4s ease-in-out infinite; }
+.imp-eyes { transform-origin: 100px 106px; animation: blink 5s infinite; }
+.imp-pupils { transition: transform 0.2s; }
+
+.imp--listening .imp-body { animation: lean 1.6s ease-in-out infinite; }
+.imp--listening .imp-brow { transform: translateY(-4px); transition: transform 0.2s; }
+.imp--thinking .imp-body { animation: hop 0.6s ease-in-out infinite; }
+.imp--thinking .imp-pupils { animation: dart 1.2s steps(1) infinite; }
+.imp--speaking .imp-body { animation: bob 1s ease-in-out infinite; }
+.imp--alert .imp-body { animation: shake 0.45s ease-in-out 3; }
+.imp--alert svg { filter: drop-shadow(0 0 18px var(--alert)); }
+.imp--error .imp-body { animation: none; filter: grayscale(0.7); }
+
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes lean { 0%, 100% { transform: rotate(-3deg) scale(1.02); } 50% { transform: rotate(-5deg) scale(1.04); } }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes wag { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(8deg); } }
+@keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+@keyframes dart { 0% { transform: translateX(-5px); } 50% { transform: translateX(5px) translateY(-3px); } }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px) rotate(-3deg); } 75% { transform: translateX(8px) rotate(3deg); } }
+@media (prefers-reduced-motion: reduce) { .imp * { animation: none !important; } }
