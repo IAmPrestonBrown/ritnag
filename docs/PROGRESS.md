@@ -38,6 +38,13 @@ Not yet verified: browser playback with real start/end events, and anything Deep
 
 One spoken question triggers exactly one audible answer, with no feedback loop. Mic code is written and unit-tested (assembler and calibration) and waits on the Deepgram key.
 
+## Demo status (2026-10-24, late evening)
+
+- **Projector demo mode** (D / `?demo=1`) with plain-English "why" lines under the caption.
+- **The full demo script in `docs/DEMO.md` passes end to end, 3/3 runs, in demo mode** (typed turns; real Claude, Moss and Cartesia; isolated data): learn → "That's Bob… talk to him like he's five" → a meeting fact said to the room is learned → Bob's question about it is answered from memory → repeat called out → priority teammate's rollback escalates.
+- Fixed tonight: owner announcements to others ("CC me on all outreach emails") were ignored as "talking to someone else"; **Reset demo could crash the server** (Moss push timer touching a closed index).
+- Live-mic speaker ID remains the risk; recover with "that was me" / "who just spoke" and say so.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**
@@ -55,7 +62,7 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
   - speaker labels are never spoken aloud.
 - [ ] Slice 4 by voice: rehearse escalation with a priority person live.
 - [x] Script gaps: per-memory `timesAsked` and per-speaker `askedByThisPerson` in the prompt; owner-set `toneNote` per person (prompt + editable line in the people panel, under the no-slurs/no-appearance rule); memory `context` ("in the 4 pm call") the imp may cite. **Tested only; not yet run live.**
-- [~] Slice 5 stage polish: **Stage view** toggle in the header (remembered per browser) grows the imp and caption for 3 m viewing and hides dev-only panels (voice, speaker map, debug, recordings). Decision line under the imp reads `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` at full contrast. While thinking, the caption rotates through in-character lines, the imp glows and fidgets, and dots appear over its head. **Checked in a headless browser at 1440×900 (thinking state and decision line forced via DOM); not yet seen on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
+- [~] Slice 5 stage polish (on top of Projector demo mode): the technical decision line `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` now shows at full contrast in both views (under the plain-English receipt in demo mode), latency in seconds. While thinking, the caption rotates through in-character lines, the imp glows and fidgets, and dots appear over its head, so the decision wait reads as the character. **Checked in a headless browser at 1440×900 with the thinking state and decision line forced via DOM; not yet seen live or on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
 - [ ] Slice 5: venue rehearsal, video, submission.
 
 ## Honest limitations

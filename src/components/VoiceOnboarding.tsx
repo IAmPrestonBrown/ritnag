@@ -28,7 +28,7 @@ const TARGET_TAKE_SEC = 5;
 const MAX_TAKE_SEC = 9;
 const NOISE_CHECK_SEC = 3;
 const LOUD_ROOM_DBFS = -45;
-const VERIFY_PHRASE = "Quick check: imp, this is really me, talking to you right now.";
+const VERIFY_PHRASE = "Quick check: Ritnag, this is really me, talking to you right now.";
 
 const ISSUE_TEXT: Record<string, string> = {
   too_short: "Too short. Read the whole sentence.",
@@ -224,9 +224,9 @@ export function VoiceOnboarding({ ownerName, onClose }: { ownerName: string; onC
     case "consent":
       body = (
         <>
-          <h2>Teach the imp your voice</h2>
+          <h2>Teach Ritnag your voice</h2>
           <p>
-            The imp only takes facts and settings from <strong>you</strong>. In a crowded room, live speaker labels mix people up, so
+            Ritnag only takes facts and settings from <strong>you</strong>. In a crowded room, live speaker labels mix people up, so
             it checks each turn against a voice profile of yours.
           </p>
           <ul>
@@ -394,11 +394,11 @@ export function VoiceOnboarding({ ownerName, onClose }: { ownerName: string; onC
       const last = impostorTest ?? selfTest;
       body = (
         <>
-          <h2>Done. The imp knows your voice.</h2>
+          <h2>Done. Ritnag knows your voice.</h2>
           {last && (
             <p>
               Accept ≥ <strong>{fmt(last.thresholds.accept)}</strong>, reject ≤ <strong>{fmt(last.thresholds.reject)}</strong>. Turns in
-              between, or shorter than ~1 s, count as uncertain: the imp won't learn from them and asks “Was that you?”.
+              between, or shorter than ~1 s, count as uncertain: Ritnag won't learn from them and asks “Was that you?”.
             </p>
           )}
           {last?.warning && <p className="error">{WARNING_TEXT[last.warning]}</p>}

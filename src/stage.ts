@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { DecisionSummary } from "../shared/events";
 
 /** How often the thinking caption rotates while the imp waits on retrieval + Claude. */
@@ -29,29 +28,4 @@ export function decisionDetails(d: DecisionSummary): string[] {
     formatLatency(d.latencyMs),
     ...(d.note ? [d.note] : []),
   ];
-}
-
-const STAGE_KEY = "imp.stageMode";
-
-function readStageMode(): boolean {
-  try {
-    return localStorage.getItem(STAGE_KEY) === "1";
-  } catch {
-    return false; // storage blocked: default to the full view
-  }
-}
-
-/** Big imp, big caption, only the panels a judge needs. Remembered per browser. */
-export function useStageMode(): [boolean, () => void] {
-  const [stage, setStage] = useState(readStageMode);
-  const toggle = () =>
-    setStage((on) => {
-      try {
-        localStorage.setItem(STAGE_KEY, on ? "0" : "1");
-      } catch {
-        // not persisted; the toggle still works for this page load
-      }
-      return !on;
-    });
-  return [stage, toggle];
 }

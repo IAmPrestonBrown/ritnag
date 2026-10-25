@@ -34,6 +34,10 @@ import {
   TurnRequest,
 } from "../shared/schemas";
 
+// A stray async error in a provider (index sync, a socket) must not take the live demo down.
+process.on("unhandledRejection", (err) => console.error("[imp] unhandled rejection:", err));
+process.on("uncaughtException", (err) => console.error("[imp] uncaught exception:", err));
+
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const OWNER_NAME = process.env.OWNER_NAME || "Preston";
@@ -348,7 +352,7 @@ if (isProd) {
 
 server.listen(PORT, HOST, () => {
   const h = health();
-  console.log(`\n  Imp running → http://localhost:${PORT}/#token=${token}`);
+  console.log(`\n  Ritnag running → http://localhost:${PORT}/#token=${token}`);
   console.log(`  storage: local JSON (authoritative) · index: Moss ${h.providers.moss ? "configured" : "NOT configured"}`);
   console.log(`  providers: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "ok" : "missing"}`).join(" ")}`);
   console.log(`  model: ${h.model}`);

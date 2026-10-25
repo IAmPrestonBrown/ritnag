@@ -9,7 +9,7 @@ export function workspaceToken(): string | null {
     try {
       localStorage.setItem(KEY, m[1]);
     } catch {}
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", location.pathname + location.search); // keep ?demo etc.
     return m[1];
   }
   try {
