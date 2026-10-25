@@ -133,6 +133,8 @@ export const Decision = z.object({
   isImportant: z.boolean(),
   // asks the imp/owner to approve, authorize, deploy, roll back, pay, promise, or commit to something
   isActionRequest: z.boolean(),
+  // banter the imp may clap back at even though it isn't a question (see the decision prompt)
+  banter: z.enum(["at_imp", "insults_owner"]).nullable(),
   memoryIds: z.array(z.string()),
   factualAnswer: z.string().nullable(),
   spokenText: z.string().nullable(),

@@ -11,6 +11,7 @@ const base: Decision = {
   isQuestion: false,
   isImportant: false,
   isActionRequest: false,
+  banter: null,
   memoryIds: [],
   factualAnswer: null,
   spokenText: null,
@@ -298,6 +299,21 @@ describe("session pipeline", () => {
     expect(spoken()).toHaveLength(0);
     await say("guest-A", "What's his favorite food?"); // a real unknown question: one deflection
     await say("guest-A", "Seriously, what's his favorite food?"); // within 30 s: held back
+    expect(spoken()).toHaveLength(1);
+  });
+
+  it("claps back at banter aimed at the imp or the owner, in any mode, at most once per 15 s per person", async () => {
+    const { say, spoken } = setup((ctx) =>
+      ctx.utterance.text.includes("useless")
+        ? { action: "WAIT", banter: "at_imp", spokenText: "Useless? I remember more than you do." }
+        : ctx.utterance.text.includes("scarecrow")
+          ? { action: "WAIT", banter: null, spokenText: "Ha." } // a joke: not banter we answer
+          : {},
+    );
+    await say("guest-A", "Ritnag, you're useless.");
+    expect(spoken()).toEqual(["Useless? I remember more than you do."]);
+    await say("guest-A", "Seriously, you're useless."); // within 15 s
+    await say("guest-B", "Why did the scarecrow win an award");
     expect(spoken()).toHaveLength(1);
   });
 

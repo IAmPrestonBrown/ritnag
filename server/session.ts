@@ -14,6 +14,8 @@ const SEARCH_TOP_K = 8;
 const CONTINUATION_MS = 2500;
 /** Optional "ask the owner" deflections: at most one per person in this window. */
 const DEFLECT_COOLDOWN_MS = 30_000;
+/** Comebacks to banter: at most one per person in this window. */
+const BANTER_COOLDOWN_MS = 15_000;
 const FALLBACK_MEMORIES = 50;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
@@ -401,11 +403,14 @@ export class Session {
     // A deflection ("ask the owner") is optional talk. While the imp talks the mic is deaf (echo
     // guard) and a new line cuts off the current one, so a chatty imp misses real questions. Never
     // deflect over its own speech, and at most once per person per DEFLECT_COOLDOWN_MS.
+    // Comebacks get the same treatment with a shorter cooldown, so the bit lands without the imp
+    // turning into a heckler that never hears the next real question.
     if (spoken && effect.kind === "wait" && role === "visitor") {
-      const k = key(utterance.connectionId, utterance.speakerLabel);
+      const banter = effect.banter === true;
+      const k = `${banter ? "banter" : "deflect"}|${key(utterance.connectionId, utterance.speakerLabel)}`;
       const last = this.lastDeflection.get(k) ?? -Infinity;
-      if (this.isSpeaking() || this.now() - last < DEFLECT_COOLDOWN_MS) {
-        console.log(`[imp] held back a deflection: "${spoken.slice(0, 50)}"`);
+      if (this.isSpeaking() || this.now() - last < (banter ? BANTER_COOLDOWN_MS : DEFLECT_COOLDOWN_MS)) {
+        console.log(`[imp] held back a ${banter ? "comeback" : "deflection"}: "${spoken.slice(0, 50)}"`);
         spoken = null;
       } else this.lastDeflection.set(k, this.now());
     }

@@ -120,6 +120,7 @@ describe("LatencyTrace fed by a real Session", () => {
     isQuestion: true,
     isImportant: true,
     isActionRequest: true,
+    banter: null,
     memoryIds: [],
     factualAnswer: null,
     spokenText: "Hang on, getting Preston.",

@@ -4,7 +4,7 @@ const TRANSIENT_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_SPOKEN_CHARS = 280;
 
 export type Effect =
-  | { kind: "wait"; spokenText: string | null; isQuestion: boolean; blocked?: string }
+  | { kind: "wait"; spokenText: string | null; isQuestion: boolean; banter?: boolean; blocked?: string }
   | { kind: "answer"; memoryIds: string[]; spokenText: string }
   | { kind: "alert"; reason: string; spokenText: string | null }
   | {
@@ -71,10 +71,14 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
       }
       case "ALERT_OWNER":
         return alertOr(d.alertReason?.trim() || "Needs the owner", d.spokenText);
-      case "WAIT":
+      case "WAIT": {
+        // Comebacks: banter aimed at the imp, or insults at the owner, get a short reply in any mode.
+        const comeback = d.banter ? clip(d.spokenText) : null;
+        if (comeback) return { kind: "wait", spokenText: comeback, isQuestion: d.isQuestion, banter: true };
         // deflections ("ask Preston") are a focus-mode behavior; otherwise the owner is right there
-        // ...and only for an actual question: remarks and banter get no reply at all
+        // ...and only for an actual question: other remarks get no reply at all
         return wait(ctx.focusMode && d.isQuestion ? d.spokenText : null);
+      }
       default:
         // LEARN / UPDATE_PERSON from a guest are never honored.
         return wait();
