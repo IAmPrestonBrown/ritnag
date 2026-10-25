@@ -746,6 +746,10 @@ const key = (connectionId: string, label: string) => `${connectionId}|${label}`;
 
 const QUESTION_START =
   /^(who|what|when|where|why|how|which|is|are|was|were|did|do|does|can|could|will|would|should|shall|have|has|had|may|might|any|anyone)\b/i;
+/** Leading filler and greetings that don't change what a turn is. */
+const LEAD_FILLER = /^(?:(?:u+h+|u+m+|e+r+|a+h+|o+h+|hey|hi|yo|so|okay|ok|well|wait|like|and|but|hm+|right|alright)\b[\s,.!?-]*)+/i;
+/** A question word near the start, even without a "?" ("how many emails do I need"). */
+const QUESTION_ANYWHERE = /^(?:\S+\s+){0,3}(?:who|what|what's|when|where|where's|why|how|which)\b/i;
 const REQUEST = /\b(can you|could you|would you|tell me|do you know|approve|authori[sz]e|deploy|roll ?back|merge|confirm|sign off|ship it)\b/i;
 // case-sensitive on purpose: a capitalized word after "it's" is likely a name ("It's Bob")
 const SELF_INTRO = /\b(?:[Ii]t'?s|[Tt]his is|I'?m|I am)\s+[A-Z]/;
@@ -754,13 +758,21 @@ const OWNER_CUE =
 
 /** Cheap pre-filter: does this turn need a decision call at all? Errs toward yes. */
 export function needsDecision(u: Utterance, questionPending: boolean): boolean {
-  const text = u.text.trim();
-  const words = text.split(/\s+/).filter(Boolean).length;
   if (u.source === "typed") return true; // typed input is deliberate
+  const text = u.text.trim();
+  // Real speech starts with "Uh," / "Oh," / "Hey," and transcripts often lack the "?":
+  // "Uh, how many emails do I need to send" is a question.
+  const core = text.replace(LEAD_FILLER, "");
+  const words = core.split(/\s+/).filter(Boolean).length;
   // Question-shaped turns always go through, whoever they're labeled as: labels are unreliable,
   // and a "visitor" question mislabeled as the owner must still be heard.
-  if (text.includes("?") || QUESTION_START.test(text) || REQUEST.test(text) || SELF_INTRO.test(text)) return true;
-  return u.isOwner && (questionPending || words >= 5 || OWNER_CUE.test(text));
+  const questionish =
+    text.includes("?") || QUESTION_START.test(core) || QUESTION_ANYWHERE.test(core) || REQUEST.test(text) || SELF_INTRO.test(text);
+  if (questionish) return true;
+  // Visitor turns run in their own lane and block nothing, so only drop tiny fragments ("Uh", "Yeah").
+  if (!(u.isOwner && u.ownerCertain)) return words >= 3;
+  // Owner turns are decided one at a time, so owner filler stays out of the queue.
+  return questionPending || words >= 5 || OWNER_CUE.test(text);
 }
 
 const effectAction = (e: Effect) =>

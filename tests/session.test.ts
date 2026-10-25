@@ -405,8 +405,17 @@ describe("needsDecision (filler gate)", () => {
       expect(needsDecision(u(t, false), false)).toBe(true);
     }
   });
-  it("skips guest chatter", () => {
-    for (const t of ["Cool.", "I'll grab coffee.", "Spit the shit out.", "Uh-huh."]) expect(needsDecision(u(t, false), false)).toBe(false);
+  it("skips only tiny guest fragments", () => {
+    for (const t of ["Cool.", "Uh-huh.", "Very close", "Oh, okay. Um"]) expect(needsDecision(u(t, false), false)).toBe(false);
+  });
+  it("hears real spoken questions that start with filler and have no question mark", () => {
+    // from a live session where these were wrongly dropped
+    for (const t of ["Uh, how many emails do I need to send", "Hey, where did you put the keys", "Oh so what's the wifi password", "Um did you push it"]) {
+      expect(needsDecision(u(t, false), false)).toBe(true);
+    }
+  });
+  it("sends longer guest remarks to Claude too (the visitor lane blocks nothing)", () => {
+    expect(needsDecision(u("You said your keys were in the bag.", false), false)).toBe(true);
   });
   it("skips owner filler only when no question is pending", () => {
     expect(needsDecision(u("Got it.", true), false)).toBe(false);
