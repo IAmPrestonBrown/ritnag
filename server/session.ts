@@ -264,7 +264,10 @@ export class Session {
     const started = this.now();
     this.setState("thinking", null);
 
-    const role = utterance.isOwner ? "owner" : "visitor";
+    // An owner turn we can't confirm (borderline voice, or a short turn carried by the label) takes the
+    // visitor path: it can still be answered, neutrally, but it can't teach or rename. Routing it as the
+    // owner would silently drop a guest's short question whenever diarization reused the owner's label.
+    const role = utterance.isOwner && utterance.ownerCertain ? "owner" : "visitor";
     const [people, recent] = await Promise.all([
       this.store.listPeople(),
       this.store.recentUtterances(this.id, RECENT_TURNS),
@@ -388,7 +391,8 @@ export class Session {
           // Unanswered question: the owner's next reply may answer it.
           this.pendingQuestion = u;
           if (!effect.spokenText) this.setState(this.listening ? "listening" : "idle", `Hmm. Waiting for ${ownerName} to answer that.`);
-          if (!u.personId) this.pendingUnknown.set(key(u.connectionId, u.speakerLabel), u);
+          // Never offer the owner's own label for "That was Bob…" binding.
+          if (!u.personId && !u.isOwner) this.pendingUnknown.set(key(u.connectionId, u.speakerLabel), u);
         }
         return effect.spokenText;
       }

@@ -56,6 +56,7 @@ then wording veto (from the decision call):
      → downgrade to UNCERTAIN: no LEARN, no UPDATE_PERSON, neutral tone
 ```
 
+- **Uncertain owner turns take the visitor path** (added after PR #1): they can be answered, in a neutral tone, but never teach, rename, or get offered for "That was Bob…" binding. Routing them as the owner silently dropped a guest's short question whenever diarization reused the owner's label.
 - **Uncertain owner turns** are not learned from, and no person updates come from them. The UI shows "Was that you?", and one click converts the turn to an owner turn and re-runs the decision.
 - **Visitor identity:** session label → person binding (already exists) plus wording hints ("it's Bob again"). A wording hint alone only *suggests* a binding in the UI; it doesn't apply it silently.
 

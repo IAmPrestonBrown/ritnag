@@ -450,6 +450,24 @@ describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
     expect(calls.length).toBe(before);
   });
 
+  it("a guest's short question on the owner's sticky label is still answered, neutrally, and teaches nothing", async () => {
+    const { say, store, session, calls, spoken } = voiceSetup();
+    await session.addMemory(
+      { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
+      null,
+    );
+    await say("spk0", "Heads down for a bit, folks.", speech(0.8));
+    await say("spk0", "Back in an hour or so.", speech(0.78));
+    // a guest, but diarization reused spk0, and the turn is too short to score
+    const q = await say("spk0", "Frontend up?", speech(null, 0.6));
+    expect(q).toMatchObject({ isOwner: true, ownerCertain: false, ownerBasis: "stickiness" });
+    expect(calls.at(-1)).toMatchObject({ role: "visitor", identityCertain: false });
+    expect(spoken().at(-1)).toBe("Yes. Pushed.");
+    expect(await store.listAllMemories()).toHaveLength(1);
+    // the owner's label is never offered for "That was Bob…" binding
+    expect((await session.snapshot()).session.pendingUnknownSpeaker).toBeNull();
+  });
+
   it("'that was me' wins over the wording veto on the re-run", async () => {
     const { say, store, session } = voiceSetup((ctx) =>
       ctx.role === "owner" ? { ...learn("standup moved to 10"), speakerCheck: { addressesOwner: true, selfIdentifiedAs: null } } : {},
