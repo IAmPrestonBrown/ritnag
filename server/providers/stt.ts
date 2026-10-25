@@ -114,6 +114,13 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
   let seq = 0;
   let sentBytes = 0;
   const debug = process.env.SPEECHMATICS_DEBUG === "1";
+  // a handshake that never completes would leave the mic "connecting" forever: fail into the reconnect path
+  const startTimer = setTimeout(() => {
+    if (started) return;
+    h.onFail("Speechmatics didn't start within 10 s (network?).");
+    ws.terminate();
+  }, 10_000);
+  startTimer.unref();
   const audioSec = () => sentBytes / 2 / sampleRate;
   ws.on("open", () => {
     ws.send(
@@ -145,6 +152,7 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
     switch (msg.message) {
       case "RecognitionStarted":
         started = true;
+        clearTimeout(startTimer);
         for (const c of pending.splice(0)) {
           ws.send(c);
           seq++;
@@ -165,7 +173,9 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
       case "AudioAdded":
         break;
       default:
+        // EndOfTranscript, SpeakersResult and future message types are informational, not failures
         if (debug) console.log(`[sm] ${msg.message}`);
+        break;
       case "Error":
         if (debug) console.log(`[sm] Error ${JSON.stringify(msg)}`);
         h.onFail(`Speechmatics: ${msg.type}: ${msg.reason}`);
@@ -178,6 +188,7 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
         break;
     }
   });
+  ws.on("close", () => clearTimeout(startTimer));
   ws.on("unexpected-response", (_q, res) => h.onFail(`Speechmatics rejected the connection (HTTP ${res.statusCode}). Check SPEECHMATICS_API_KEY.`));
   ws.on("error", (err) => h.onFail(`Speechmatics error: ${err.message}`));
   ws.on("close", (code) => h.onClosed(code));

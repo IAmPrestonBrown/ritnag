@@ -5,7 +5,10 @@ import { Decision } from "../../shared/schemas";
 export const anthropicModel = () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 
 let client: Anthropic | null = null;
-const getClient = () => (client ??= new Anthropic());
+// Bounded: a hung request fails into the operator's Retry instead of leaving the imp "thinking". The SDK
+// retries dropped connections and 429/5xx once, quickly; a timeout is not retried (worst case ~10 s).
+const CLAUDE_TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS || 10_000);
+export const getClient = () => (client ??= new Anthropic({ timeout: CLAUDE_TIMEOUT_MS, maxRetries: 1 }));
 
 type Effort = "low" | "medium" | "high";
 
@@ -46,7 +49,8 @@ export async function claudeDecide(system: string, user: string): Promise<Decisi
       return Decision.parse(response.parsed_output);
     } catch (err) {
       lastError = err;
-      if (err instanceof Anthropic.APIError && err.status !== undefined && err.status < 500 && err.status !== 429) break;
+      // API errors were already retried by the SDK where that helps; only unparseable output is retried here
+      if (err instanceof Anthropic.APIError) break;
     }
   }
   throw lastError;

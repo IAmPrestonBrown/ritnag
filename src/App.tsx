@@ -9,6 +9,7 @@ import { AlertsPanel } from "./components/Panels";
 import { CalibrationBar, PrimaryControls, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { SettingsDrawer } from "./components/SettingsDrawer";
 import { SideTabs } from "./components/SideTabs";
+import { DemoPanel } from "./components/DemoPanel";
 import { VoiceOnboarding } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
 import { chime, notifyAlert, primeAlerts } from "./notify";
@@ -35,6 +36,10 @@ export function App() {
   const [lastDecision, setLastDecision] = useState<DecisionSummary | null>(null);
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // a failed decision the operator can re-run once (server-side dedup: nothing was written for it)
+  const [retryTurnId, setRetryTurnId] = useState<string | null>(null);
+  const demoDefaulted = useRef(false);
+  const lastShownAt = useRef(0);
   const toasts = useToasts();
   const generation = useRef(0);
   // the event handler is registered once, so it reads people through a ref
@@ -73,6 +78,12 @@ export function App() {
     mic.current.stop(conn.current?.socket() ?? null);
     setMicOn(false);
   };
+  // New transcription session (fresh speaker labels); saved memories and people are kept.
+  const restartListening = async () => {
+    stopMic();
+    await new Promise((r) => setTimeout(r, 400));
+    await toggleMic();
+  };
   const toggleMic = async () => {
     if (mic.current.active) return stopMic();
     primeAlerts();
@@ -103,6 +114,16 @@ export function App() {
           director.handle(e.request);
           break;
         case "snapshot":
+          if (e.snapshot.session.generation !== generation.current) {
+            // a reset: the previous run's reply must not keep playing, and its retries are void
+            if (generation.current !== 0) player.current?.stop();
+            setRetryTurnId(null);
+          }
+          // the demo profile opens in Demo Mode (once; D still toggles)
+          if (e.snapshot.profile === "demo" && !demoDefaulted.current) {
+            demoDefaulted.current = true;
+            setDemo(true);
+          }
           generation.current = e.snapshot.session.generation;
           people.current = e.snapshot.people;
           setSnapshot(e.snapshot);
@@ -121,7 +142,12 @@ export function App() {
           break;
         case "decision.completed":
           if (!live) break;
-          setLastDecision(e.decision);
+          // a WAIT on a trailing fragment shouldn't wipe the answer the room just heard (receipt, retrieved memory)
+          setLastDecision((prev) =>
+            e.decision.action === "WAIT" && !e.decision.spokenText && prev && prev.action !== "WAIT" && Date.now() - lastShownAt.current < 15_000
+              ? prev
+              : ((lastShownAt.current = Date.now()), e.decision),
+          );
           setDeciding(false);
           break;
         case "speech.ready":
@@ -137,6 +163,7 @@ export function App() {
           break;
         case "error":
           setError(e.message);
+          setRetryTurnId(e.retryTurnId ?? null);
           // the server ended the transcription stream; release the mic too
           if (/deepgram|transcription/i.test(e.message)) stopMic();
           break;
@@ -196,6 +223,30 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toasts.push]);
+
+  // Keep the screen awake while listening (where supported). It doesn't keep a background tab's mic alive.
+  useEffect(() => {
+    if (!micOn || !("wakeLock" in navigator)) return;
+    let lock: { release: () => Promise<void> } | null = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const l = await (navigator as unknown as { wakeLock: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock.request("screen");
+        if (cancelled) void l.release();
+        else lock = l;
+      } catch {
+        /* not allowed right now (hidden tab, power saver): the page still works */
+      }
+    };
+    const onVisible = () => document.visibilityState === "visible" && void acquire();
+    void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      void lock?.release().catch(() => {});
+    };
+  }, [micOn]);
 
   // Mouth flaps only while audio is actually playing.
   const talking = speaking || stage.speaking;
@@ -284,6 +335,21 @@ export function App() {
         {shownError && (
           <div className="banner err">
             <span>{shownError}</span>
+            {retryTurnId && !stage.active && (
+              <button
+                className="small"
+                onClick={() =>
+                  void post("/api/turn/retry", { utteranceId: retryTurnId })
+                    .then(() => {
+                      setError(null);
+                      setRetryTurnId(null);
+                    })
+                    .catch((err: Error) => setError(err.message))
+                }
+              >
+                Retry
+              </button>
+            )}
             <button className="small" onClick={() => (stage.active ? void director.run({ do: "error", text: null }) : setError(null))}>
               Dismiss
             </button>
@@ -310,12 +376,28 @@ export function App() {
           />
           <WhoJustAsked snapshot={snapshot} />
         </section>
-        <SideTabs
-          snapshot={snapshot}
-          highlight={stage.active ? stage.highlight : lastDecision?.memoryIds ?? []}
-          partial={shownPartial}
-          tab={stage.tab}
-        />
+        {demo && !stage.active ? (
+          <DemoPanel
+            snapshot={snapshot}
+            mic={mic.current}
+            micOn={micOn}
+            micLabel={micLabel}
+            speaking={speaking}
+            partial={shownPartial}
+            lastDecision={lastDecision}
+            onToggleMic={() => void toggleMic()}
+            onRestartListening={() => void restartListening()}
+            onStopSpeaking={() => player.current?.stop()}
+            onError={setError}
+          />
+        ) : (
+          <SideTabs
+            snapshot={snapshot}
+            highlight={stage.active ? stage.highlight : lastDecision?.memoryIds ?? []}
+            partial={shownPartial}
+            tab={stage.tab}
+          />
+        )}
       </div>
 
       <Toasts toasts={toasts.toasts} onLeave={toasts.leave} onRemove={toasts.remove} />

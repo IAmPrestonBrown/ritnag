@@ -73,6 +73,30 @@ answer, and the spoken day report. Verified: unit tests, plus a spoken two-sessi
 WebSocket, Speechmatics, Claude Haiku and Cartesia with macOS synthetic voices (not real people). The last two
 prompt tweaks ("I hate him" → savage; the report treats handled alerts as done) are unit-tested only.
 
+## Demo-day hardening (2026-10-25, early morning)
+
+Operator guide: [DEMO_DAY.md](DEMO_DAY.md). `npm run demo` runs a separate demo profile (`data/demo/`, its own
+Moss index) that opens in Demo Mode.
+
+Verified on the demo MacBook against the real providers (Speechmatics, Moss, Claude Haiku, Cartesia):
+- **Push-to-talk + manual attribution**, through the real browser capture code with a synthetic clip injected as the
+  mic (Chrome's own fake-mic device produced silence on macOS, so the clip was fed via `getUserMedia`): with the
+  gate closed a looping clip produced 0 transcript rows in 7 s; holding Guest with "Guest is: Bob" produced Bob
+  rows tagged manual and a spoken answer; holding Owner produced certain, manual owner rows.
+- **Start fresh demo**: prepared example (Bob sarcastic + one sample memory) and learn live both reach Ready with
+  the demo index matching the records; six rapid restarts stayed consistent; a reset during an in-flight decision
+  produced no stale speech or writes; everyday data (14 memories) untouched.
+- **Typed fallback** through the same pipeline; learn live taught by typed owner turns and recalled by paraphrase.
+- **Failures**: real Claude "Connection error"s during network blips surfaced as a banner with Retry instead of a
+  stuck "Thinking"; a real 5-minute Claude hang during an outage is now cut at 25 s; reaction clips that failed at
+  boot are re-synthesized in the background; the provider check makes a real request to each provider.
+- **All day**: four rapid "Restart listening" ended with one live Speechmatics session and memories kept.
+- Fixed along the way: a Speechmatics message-type fall-through that turned any unrecognized message into a
+  reconnect; a trailing fragment ("Did") cancelling the finished question before it.
+
+**Not verified:** the real microphone in a noisy venue, a real speaker-to-mic feedback loop at venue volume, and
+a multi-hour soak. Test those at the venue before the first judge.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**

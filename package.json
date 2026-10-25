@@ -11,6 +11,7 @@
     "dev": "tsx watch --clear-screen=false server/index.ts",
     "build": "vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
+    "demo": "npm run build && IMP_PROFILE=demo NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "voice:model": "tsx server/voice/fetchModel.ts",

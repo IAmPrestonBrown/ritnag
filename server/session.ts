@@ -33,6 +33,20 @@ const NAME_NOTICE_MS = 60_000;
 const WHO_ASK_MS = 2500;
 const WHO_WINDOW_MS = 30_000;
 const FALLBACK_MEMORIES = 50;
+const SEARCH_TIMEOUT_MS = 3000;
+const DECISION_TIMEOUT_MS = 25_000;
+const REBUILD_WAIT_MS = 8000;
+
+/** Rejects if `p` doesn't settle within `ms`; `p` itself keeps running and its result is dropped. */
+function withDeadline<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} didn't answer within ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+// replies never played (stale, superseded, TTS failed) are forgotten after this
+const RESPONSE_TTL_MS = 120_000;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
  * and every reply lands later than the last. A visitor turn that has already waited this long is
@@ -72,6 +86,11 @@ export interface IncomingTurn {
    * finalized while the imp is already answering the previous one.
    */
   echoFiltered?: boolean;
+  /**
+   * Speech only: the operator pressed "Owner speaking" / "Guest speaking" while this was said. Overrides
+   * voice identification and is shown as a manual assignment (ownerBasis "manual").
+   */
+  manualRole?: "owner" | "guest";
 }
 
 interface PendingResponse {
@@ -103,6 +122,12 @@ export interface SessionOptions {
   report?: (r: DayReport) => Promise<string>;
   /** The owner bound a voice to a person (learn its voiceprint for next time). */
   onBound?: (connectionId: string, label: string, personId: string) => void;
+  /** "demo" keeps demo records apart from everyday data (separate store file and Moss index). */
+  profile?: "everyday" | "demo";
+  /** Hard limit on one decision (Claude); past it the turn fails into Retry. */
+  decisionTimeoutMs?: number;
+  /** Moss search budget; past it the decision uses the recent-memories fallback and says so. */
+  searchTimeoutMs?: number;
   /** Quiet time after the owner talks to an unknown voice before the imp asks "who was that?". */
   whoAskMs?: number;
 }
@@ -150,8 +175,19 @@ export class Session {
   private inflight = new Set<Promise<void>>();
   // latest visitor turn per speaker, so a fragment that the speaker immediately continued is dropped
   private latestVisitorTurn = new Map<string, Utterance>();
+  private previousVisitorTurn = new Map<string, Utterance>();
   private lastDeflection = new Map<string, number>();
   private lastOwnerSpokeAt = -Infinity;
+  // turns whose decision failed: the operator may retry each once (nothing was written for them)
+  private failed = new Map<string, Utterance>();
+  /** Live transcription connection state, shown in the UI (configured ≠ connected). */
+  stt: { provider: string; state: "off" | "connecting" | "connected" | "reconnecting" | "failed"; detail: string | null } = {
+    provider: "",
+    state: "off",
+    detail: null,
+  };
+  /** The last "Start fresh demo" (demo profile). */
+  demo: { mode: "learn" | "prepared"; startedAt: number } | null = null;
   // notices: speaker labels already announced this session, and when each name was last announced
   private seenVoices = new Set<string>();
   // "who was that?": the last unidentified voice, voices already asked about, and the pending ask
@@ -215,7 +251,7 @@ export class Session {
   }
 
   /** auto: the provider recognized the voice (no owner action), so there's nothing new to learn from it. */
-  async bindSpeaker(connectionId: string, label: string, personId: string | null, opts: { auto?: boolean } = {}) {
+  async bindSpeaker(connectionId: string, label: string, personId: string | null, opts: { auto?: boolean; quiet?: boolean } = {}) {
     const k = key(connectionId, label);
     if (personId) this.bindings.set(k, personId);
     else this.bindings.delete(k);
@@ -231,7 +267,7 @@ export class Session {
     this.opts.emit({ type: "speaker.bound", speakerLabel: label, personId, generation: this.generation });
     if (personId) {
       const person = (await this.store.listPeople()).find((p) => p.id === personId);
-      if (person) this.announceName(person.id, person.name, opts.auto ? "Voice recognized" : null);
+      if (person && !opts.quiet) this.announceName(person.id, person.name, opts.auto ? "Voice recognized" : null);
       if (!opts.auto) this.opts.onBound?.(connectionId, label, personId);
     }
     await this.broadcast();
@@ -367,11 +403,13 @@ export class Session {
     this.cancelWhoAsk();
     this.lastUnknown = null;
     this.askedWho.clear();
+    this.failed.clear();
     if (opts.wipe) {
       this.bindings.clear();
       this.id = randomUUID();
       await this.store.reset(opts.everything ?? false);
-      await this.rebuildIndex();
+      // bounded: an unreachable Moss must not hang the reset; readiness then reports "not ready"
+      await withDeadline(this.rebuildIndex(), REBUILD_WAIT_MS, "Moss rebuild").catch((err) => console.warn(`[imp] ${err.message}; continuing`));
     }
     this.setState(this.listening ? "listening" : "idle", null);
     await this.broadcast();
@@ -403,7 +441,14 @@ export class Session {
     // Half-duplex: speech captured while the imp talks never reaches learning or answering.
     if (turn.source === "speech" && !turn.echoFiltered && this.isMuted()) return null;
 
-    const owner = resolveOwner({
+    const owner = turn.source === "speech" && turn.manualRole
+      ? {
+          isOwner: turn.manualRole === "owner",
+          ownerCertain: turn.manualRole === "owner",
+          basis: "manual" as const,
+          score: turn.ownerScore ?? null,
+        }
+      : resolveOwner({
       source: turn.source,
       asOwner: turn.asOwner === true,
       profile: turn.source === "speech" ? this.voiceProfile() : null,
@@ -413,7 +458,7 @@ export class Session {
       calibratedOwnerLabel: this.ownerSpeakerLabel,
       verifiedOwnerLabels: turn.connectionId === this.speechConnectionId ? this.verifiedOwnerLabels : [],
       providerOwner: turn.source === "speech" ? turn.providerOwner ?? null : null,
-    });
+        });
     const isOwner = owner.isOwner;
     const now = this.now();
     const utterance = await this.store.addUtterance({
@@ -456,11 +501,16 @@ export class Session {
 
   private enqueue(utterance: Utterance, generation: number) {
     const ownerLane = utterance.isOwner && utterance.ownerCertain;
-    if (!ownerLane) this.latestVisitorTurn.set(key(utterance.connectionId, utterance.speakerLabel), utterance);
+    if (!ownerLane) {
+      const k = key(utterance.connectionId, utterance.speakerLabel);
+      const prev = this.latestVisitorTurn.get(k);
+      if (prev && prev.id !== utterance.id) this.previousVisitorTurn.set(k, prev);
+      this.latestVisitorTurn.set(k, utterance);
+    }
     const enqueuedAt = this.now();
     const run = ownerLane
-      ? (this.ownerQueue = this.ownerQueue.then(() => this.process(utterance, generation, enqueuedAt)).catch((err) => this.fail(err)))
-      : this.process(utterance, generation, enqueuedAt).catch((err) => this.fail(err));
+      ? (this.ownerQueue = this.ownerQueue.then(() => this.process(utterance, generation, enqueuedAt)).catch((err) => this.fail(err, utterance, generation)))
+      : this.process(utterance, generation, enqueuedAt).catch((err) => this.fail(err, utterance, generation));
     this.inflight.add(run);
     void run.finally(() => this.inflight.delete(run));
   }
@@ -479,6 +529,10 @@ export class Session {
     }
     // Filler never reaches Claude: each call is ~1-3 s and turns are single-file, so chatter
     // would otherwise delay the next real question.
+    if (this.isTrailingFragment(utterance)) {
+      console.log(`[imp] skipped a fragment trailing a finished question: "${utterance.text.slice(0, 60)}"`);
+      return;
+    }
     if (!needsDecision(utterance, this.pendingQuestion !== null)) {
       console.log(`[imp] skipped filler (${utterance.isOwner ? "owner" : "visitor"}): "${utterance.text.slice(0, 60)}"`);
       return;
@@ -520,7 +574,9 @@ export class Session {
       now: this.now(),
     };
 
-    const decision = await this.decider(ctx);
+    // Hard deadline on top of the SDK's own timeout (which didn't hold during a real network outage):
+    // past it the turn fails into Retry, and a late answer is ignored.
+    const decision = await withDeadline(this.decider(ctx), this.opts.decisionTimeoutMs ?? DECISION_TIMEOUT_MS, "Claude");
     if (generation !== this.generation) return; // Stop/Reset happened mid-call
     if (role === "visitor" && this.continuedBySameSpeaker(utterance)) {
       // Transcription split one question in two ("Can you approve the." / "production rollback?").
@@ -624,7 +680,7 @@ export class Session {
         responseId,
         latencyMs: this.now() - started,
         note: effect.kind === "alert" ? effect.reason : effect.kind === "wait" ? effect.blocked ?? null : null,
-        retrieval: { mode: retrieval.mode, hits: retrieval.hits },
+        retrieval: { mode: retrieval.mode, hits: retrieval.hits, ...("fallbackReason" in retrieval ? { fallbackReason: retrieval.fallbackReason } : {}) },
       },
     });
     if (!responseId && this.state === "thinking") this.setState(this.listening ? "listening" : "idle", null);
@@ -810,10 +866,15 @@ export class Session {
 
   private async retrieve(query: string) {
     const active = await this.store.listActiveMemories(this.now(), 500);
-    const hits = await this.index.search(query, SEARCH_TOP_K);
-    if (hits === null) {
+    const budget = this.opts.searchTimeoutMs ?? SEARCH_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), budget)));
+    const hits = await Promise.race([this.index.search(query, SEARCH_TOP_K), timedOut]).finally(() => clearTimeout(timer));
+    if (hits === null || hits === "timeout") {
+      const fallbackReason = hits === "timeout" ? `Moss didn't answer within ${budget / 1000} s` : this.index.getStatus().lastError ?? "Moss isn't ready";
       return {
         mode: "unavailable" as const,
+        fallbackReason,
         hits: [],
         memories: active.slice(0, FALLBACK_MEMORIES).map((m) => ({ ...m, score: null })),
       };
@@ -869,8 +930,22 @@ export class Session {
   /** A newer visitor turn from the same speaker that started within a moment of this one ending. */
   private continuedBySameSpeaker(u: Utterance): boolean {
     if (u.source !== "speech") return false;
+    // A finished question ("…PR yet?") stands on its own: a trailing fragment ("Did", "uh") after it
+    // must not cancel it. Only an unfinished piece ("Can you approve the.") is merged into what follows.
+    if (/\?["')\]]*\s*$/.test(u.text)) return false;
     const latest = this.latestVisitorTurn.get(key(u.connectionId, u.speakerLabel));
-    return !!latest && latest.id !== u.id && latest.startedAt - u.endedAt < CONTINUATION_MS;
+    return !!latest && latest.id !== u.id && latest.startedAt - u.endedAt < CONTINUATION_MS && needsDecision(latest, this.pendingQuestion !== null);
+  }
+
+  /**
+   * "Did you push the PR yet?" then "Did" (a push-to-talk release mid-word, or a stray echo of the start):
+   * a tiny piece right after the same speaker's finished question is part of it, not a second question.
+   */
+  private isTrailingFragment(u: Utterance): boolean {
+    if (u.source !== "speech" || (u.isOwner && u.ownerCertain)) return false;
+    const prev = this.previousVisitorTurn.get(key(u.connectionId, u.speakerLabel));
+    if (!prev || !/\?["')\]]*\s*$/.test(prev.text) || u.startedAt - prev.endedAt >= CONTINUATION_MS) return false;
+    return u.text.replace(LEAD_FILLER, "").split(/\s+/).filter(Boolean).length < 3;
   }
 
   private singlePendingUnknown(): Utterance | null {
@@ -913,6 +988,7 @@ export class Session {
 
   private queueSpeech(text: string, generation: number, tone: Tone, reaction?: { clip: string; turnId: string }) {
     const responseId = randomUUID();
+    for (const [id, r] of this.responses) if (this.now() - r.createdAt > RESPONSE_TTL_MS && id !== this.playingResponseId) this.responses.delete(id);
     this.responses.set(responseId, { text, tone, generation, createdAt: this.now(), ...reaction });
     // Block mic input from the moment audio is requested, not just once it plays.
     this.speakingResponseId = responseId;
@@ -962,11 +1038,46 @@ export class Session {
     this.opts.emit({ type: "state.changed", state, caption, generation: this.generation });
   }
 
-  private fail(err: unknown) {
+  private fail(err: unknown, u?: Utterance, generation?: number) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[imp] decision failed:", message);
-    this.setState("error", null);
-    this.opts.emit({ type: "error", message, recoverable: true });
+    const cause = err instanceof Error && err.cause ? ` (cause: ${err.cause instanceof Error ? `${(err.cause as { code?: string }).code ?? ""} ${err.cause.message}` : String(err.cause)})` : "";
+    console.error(`[imp] decision failed: ${message}${cause}`);
+    if (generation !== undefined && generation !== this.generation) return; // reset meanwhile: nothing to show
+    if (u) {
+      this.failed.set(u.id, u);
+      if (this.failed.size > 20) this.failed.delete(this.failed.keys().next().value!);
+    }
+    // never leave the imp stuck "thinking": back to listening, with the error and a retry offered
+    this.setState(this.listening ? "listening" : "idle", null);
+    this.opts.emit({ type: "error", message: `Couldn't decide on "${u ? u.text.slice(0, 60) : "that"}": ${message}`, recoverable: true, ...(u ? { retryTurnId: u.id } : {}) });
+  }
+
+  /** Re-run a turn whose decision failed. Once per failure; nothing was learned or counted for it. */
+  retry(utteranceId: string): boolean {
+    const u = this.failed.get(utteranceId);
+    if (!u) return false;
+    this.failed.delete(utteranceId);
+    this.enqueue(u, this.generation);
+    return true;
+  }
+
+  /**
+   * The transcription session was replaced: its speaker labels start over, so S2 may now be someone
+   * else. Forget what the old labels meant; the owner reconfirms (the enrolled owner is re-identified).
+   */
+  clearSpeechBindings(connectionId: string) {
+    for (const map of [this.bindings, this.pendingUnknown, this.suggestions] as Map<string, unknown>[])
+      for (const k of [...map.keys()]) if (k.startsWith(`${connectionId}|`)) map.delete(k);
+    for (const k of [...this.seenVoices]) if (k.startsWith(`${connectionId}|`)) this.seenVoices.delete(k);
+    this.verifiedOwnerLabels = [];
+    this.lastUnknown = null;
+    this.cancelWhoAsk();
+    void this.broadcast();
+  }
+
+  setStt(state: Session["stt"]["state"], provider: string, detail: string | null = null) {
+    this.stt = { provider, state, detail };
+    void this.broadcast();
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -993,6 +1104,8 @@ export class Session {
     ].sort();
     return {
       storage: this.store.kind,
+      profile: this.opts.profile ?? "everyday",
+      demo: this.demo,
       index: this.index.getStatus(),
       ownerName: this.opts.ownerName,
       session: {
@@ -1011,6 +1124,7 @@ export class Session {
         }),
         speechLabels,
         voice: this.opts.voiceStatus?.() ?? NO_VOICE,
+        stt: this.stt,
       },
       people,
       memories,

@@ -62,7 +62,8 @@ embedding only, deletable from Settings) and the cached speaker model. Provider 
 | Command | |
 | --- | --- |
 | `npm run dev` | UI + API on one origin, restarts on save |
-| `npm run check` | Typecheck + 171 tests + build |
+| `npm run demo` | Demo day: separate demo records, opens in Demo Mode, no auto-restart ([guide](docs/DEMO_DAY.md)) |
+| `npm run check` | Typecheck + tests + build |
 | `npm run build && npm start` | Production build served by Node |
 | `npm run voice:model` | Prefetch the speaker-verification model (~26 MB) |
 | `npm run smoke:voice` | Two synthetic spoken questions through the whole pipeline, with timings |
@@ -79,7 +80,7 @@ re-enactment, not a capture of the live run.** Every behavior it shows is implem
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md) · [Speaker identification](docs/SPEAKER_ID.md) · [Progress and verification](docs/PROGRESS.md)
-- [Demo script](docs/DEMO.md) · [Rehearsal runbook](docs/REHEARSAL.md) · [Director mode](docs/DIRECTOR.md)
+- [Demo day operator guide](docs/DEMO_DAY.md) · [Demo script](docs/DEMO.md) · [Rehearsal runbook](docs/REHEARSAL.md) · [Director mode](docs/DIRECTOR.md)
 - [Build plan](docs/BUILD_PLAN.md) · [Cal Hacks notes](docs/CALHACKS.md) · [Devpost draft](docs/DEVPOST.md)
 
 ## Team

@@ -171,6 +171,13 @@ export class TurnAssembler {
     }
   }
 
+  /** Drop words not yet turned into a turn (demo reset): they belong to the previous run. */
+  discard() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.words = [];
+  }
+
   dispose() {
     if (this.timer) clearTimeout(this.timer);
   }

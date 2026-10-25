@@ -22,6 +22,8 @@ export interface TurnScorer {
 export const OWNER_LABEL = "owner";
 /** Enrolled visitors get the label `person_<personId>`: Speechmatics recognizing them binds them. */
 export const PERSON_LABEL = "person_";
+/** A turn the operator marked "Guest speaking" that the provider had filed under the owner's voice. */
+export const MANUAL_GUEST_LABEL = "guest";
 // audio kept per voice for learning its voiceprint (enough for a solid print, bounded memory)
 const VOICE_CLIP_MAX_SEC = 30;
 
@@ -47,6 +49,10 @@ export class AudioRelay {
   private closed = false;
   // each visitor voice's recent turns, for learning a voiceprint when the owner names them
   private labelAudio = new Map<string, Float32Array[]>();
+  // operator's "Owner speaking" / "Guest speaking" presses, in stream time (newest last, bounded)
+  private assignments: { start: number; end: number | null; role: "owner" | "guest"; personId: string | null }[] = [];
+  // a demo reset: turns that ended before this stream time belong to the previous run
+  private discardBeforeSec = 0;
 
   constructor(
     private readonly session: Session,
@@ -95,6 +101,13 @@ export class AudioRelay {
    */
   private connect(): SttStream {
     const offset = this.ring.durationSec;
+    const reconnecting = this.stt !== undefined;
+    if (reconnecting) {
+      // a new provider session numbers speakers from scratch: old label → person bindings are void
+      this.session.clearSpeechBindings(this.connectionId);
+      this.emit({ type: "error", message: "Transcription reconnected: speaker names were cleared. Reconfirm who's who (or use Owner/Guest speaking).", recoverable: true });
+    }
+    this.session.setStt(reconnecting ? "reconnecting" : "connecting", sttProvider());
     const shift = (msg: unknown) => {
       const m = msg as { type?: string; start?: number; channel?: { alternatives?: { words?: { start: number; end: number }[] }[] } };
       if (offset && m.type === "Results") {
@@ -111,6 +124,7 @@ export class AudioRelay {
       {
         onReady: () => {
           this.reconnects = 0;
+          if (stream === this.stt) this.session.setStt("connected", stream.name);
           console.log(
             `[imp] ${stream.name} connected (${this.connectionId.slice(0, 8)})` +
               (stream.name === "speechmatics" ? ` · enrolled: ${this.enrolled.map((e) => e.label).join(", ") || "none"}` : ""),
@@ -141,6 +155,7 @@ export class AudioRelay {
       return this.fail(`${message} Start listening again; speakers need re-confirming.`);
     }
     const wait = 1000 * 2 ** this.reconnects++;
+    this.session.setStt("reconnecting", this.stt.name, `${message} Retry ${this.reconnects}/${MAX_RECONNECTS} in ${wait / 1000} s`);
     console.warn(`[imp] ${message} Reconnecting in ${wait / 1000}s (attempt ${this.reconnects}/${MAX_RECONNECTS}).`);
     const old = this.stt;
     old.end(true);
@@ -162,6 +177,8 @@ export class AudioRelay {
     // Only real playback time: the post-playback cooldown is for late-arriving transcripts, and
     // counting it here would swallow someone who starts talking the moment the imp stops.
     if (this.session.isPlaying()) addMutedTime(this.mutedSpans, at, this.ring.durationSec);
+    // echo spans older than the ring buffer can't matter any more (keeps an all-day session bounded)
+    if (this.mutedSpans.length > 50) this.mutedSpans = this.mutedSpans.filter(([, end]) => end > this.ring.durationSec - RING_SECONDS);
     // While the imp's own voice is playing, the provider gets silence of the same length instead of
     // the mic. Those words would be dropped as echo anyway, and transcribing them made Speechmatics
     // fall 5-9 s behind in rehearsal. Same sample count, so timestamps stay aligned with the ring.
@@ -171,6 +188,15 @@ export class AudioRelay {
   /** Score the turn's own audio (when there's a profile and it's long enough), then hand it to the session. */
   private async deliver(turn: AssembledTurn, times: { startedAt: number; endedAt: number }) {
     const durationSec = turn.endSec - turn.startSec;
+    if (turn.endSec <= this.discardBeforeSec) return void console.log(`[imp] dropped a turn from before the reset: "${turn.text.slice(0, 50)}"`);
+    const manual = this.assignmentAt((turn.startSec + turn.endSec) / 2);
+    if (manual?.role === "guest" && (turn.speakerLabel === OWNER_LABEL || turn.speakerLabel === this.session.ownerSpeakerLabel)) {
+      // the operator says this was a guest: never file it under the owner's label
+      turn = { ...turn, speakerLabel: MANUAL_GUEST_LABEL };
+    }
+    if (manual?.role === "guest" && manual.personId && this.session.personFor(this.connectionId, turn.speakerLabel) !== manual.personId) {
+      await this.session.bindSpeaker(this.connectionId, turn.speakerLabel, manual.personId);
+    }
     // Deepgram finalizes a second or so after the words, so a "muted?" check on arrival misses the
     // tail of the imp's own reply. Judge by when the audio was actually captured instead.
     if (this.droppedEcho.length) {
@@ -208,6 +234,7 @@ export class AudioRelay {
       // Speechmatics names the enrolled owner itself, judging the whole conversation, not one clip.
       providerOwner: this.ownerEnrolled ? turn.speakerLabel === OWNER_LABEL : null,
       echoFiltered: true,
+      ...(manual ? { manualRole: manual.role } : {}),
     });
   }
 
@@ -226,6 +253,30 @@ export class AudioRelay {
     return { takes: clips.map((pcm) => ({ pcm, sampleRate: this.sampleRate })), seconds: clips.reduce((n, c) => n + c.length, 0) / this.sampleRate };
   }
 
+  /**
+   * The operator pressed (role) or released (null) "Owner speaking" / "Guest speaking". Audio and this
+   * message share one socket, so the stream position now is exactly where the press happened.
+   */
+  assign(role: "owner" | "guest" | null, personId: string | null = null) {
+    const now = this.ring.durationSec;
+    const open = this.assignments.at(-1);
+    if (open && open.end === null) open.end = now;
+    if (role) this.assignments.push({ start: now, end: null, role, personId });
+    if (this.assignments.length > 100) this.assignments.splice(0, this.assignments.length - 100);
+  }
+
+  private assignmentAt(sec: number) {
+    // a little slack: transcription word times and the press can be a few hundred ms apart
+    return [...this.assignments].reverse().find((a) => sec >= a.start - 0.3 && sec <= (a.end ?? Infinity) + 0.5) ?? null;
+  }
+
+  /** Demo reset: forget words in flight and anything said before now. */
+  discardPending() {
+    this.assembler.discard();
+    this.discardBeforeSec = this.ring.durationSec;
+    this.droppedEcho = [];
+  }
+
   /** Server going down: close the provider session immediately. */
   shutdown() {
     this.closed = true;
@@ -235,6 +286,7 @@ export class AudioRelay {
   stop() {
     if (this.closed) return;
     this.closed = true;
+    if (this.session.stt.state !== "failed") this.session.setStt("off", this.stt.name);
     this.stt.end();
     this.onEnded(this);
     // Give Deepgram a moment to return final results and flush them while the owner label still
@@ -248,6 +300,7 @@ export class AudioRelay {
 
   private fail(message: string) {
     if (this.closed) return;
+    this.session.setStt("failed", this.stt.name, message);
     console.error(`[imp] ${message}`);
     this.emit({ type: "error", message, recoverable: true });
     this.stop();

@@ -27,11 +27,11 @@ export class ReactionBank {
   private lastKey = new Map<Tone, string>();
 
   /** Synthesizes every line in the background; reactions switch on as clips arrive. */
-  async warm(concurrency = 3) {
+  async warm(concurrency = 3, want: (key: string) => boolean = () => true) {
     if (!cartesiaConfigured()) return;
-    const jobs = (Object.entries(LINES) as [Tone, string[]][]).flatMap(([tone, lines]) =>
-      lines.map((text, i) => ({ key: `${tone}:${i}`, text, tone })),
-    );
+    const jobs = (Object.entries(LINES) as [Tone, string[]][])
+      .flatMap(([tone, lines]) => lines.map((text, i) => ({ key: `${tone}:${i}`, text, tone })))
+      .filter((j) => want(j.key));
     const t0 = Date.now();
     const worker = async () => {
       for (let job = jobs.shift(); job; job = jobs.shift()) {
@@ -45,6 +45,16 @@ export class ReactionBank {
     };
     await Promise.all(Array.from({ length: concurrency }, worker));
     console.log(`[imp] ${this.clips.size} instant reactions ready in ${Date.now() - t0}ms`);
+  }
+
+  /** Keeps retrying the clips that failed (e.g. the network was down at boot), with backoff, until all exist. */
+  async warmUntilComplete(maxAttempts = 8) {
+    const total = Object.values(LINES).flat().length;
+    for (let attempt = 0; attempt < maxAttempts && this.clips.size < total; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, Math.min(120_000, 15_000 * 2 ** (attempt - 1))));
+      const missing = new Set(this.clips.keys());
+      await this.warm(3, (key) => !missing.has(key));
+    }
   }
 
   /** A clip for this tone (falls back to neutral), avoiding an immediate repeat. */

@@ -1073,3 +1073,157 @@ describe("one owner turn can both teach and name", () => {
     expect((await store.listAllMemories()).map((m) => m.factualAnswer)).toEqual(["CC the owner"]);
   });
 });
+
+describe("demo day reliability", () => {
+  const mk = (decide: (ctx: DecisionContext) => Promise<Partial<Decision>> | Partial<Decision>, index: MemoryIndex = new FakeIndex(), extra: Partial<ConstructorParameters<typeof Session>[3]> = {}) => {
+    const events: ServerEvent[] = [];
+    const store = new JsonMemoryStore(null);
+    const session = new Session(store, async (ctx) => ({ ...base, ...(await decide(ctx)) }), index, {
+      ownerName: "Preston",
+      emit: (e) => events.push(e),
+      speechGuardMs: 50,
+      ...extra,
+    });
+    session.setSpeechConnection("sm-1");
+    session.setOwnerSpeaker("owner"); // calibration done
+    const speak = async (label: string, text: string, manualRole?: "owner" | "guest") => {
+      const u = await session.ingest({ source: "speech", connectionId: "sm-1", asOwner: false, text, speakerLabel: label, providerEventId: `${label}:${text}`, echoFiltered: true, providerOwner: label === "owner", manualRole });
+      await session.idle();
+      return u;
+    };
+    return { events, store, session, speak };
+  };
+
+  it("'Owner speaking' / 'Guest speaking' override voice ID and are recorded as manual", async () => {
+    const { speak } = mk(() => ({}));
+    const asOwner = await speak("S2", "It's pushed and waiting for review.", "owner"); // voice said guest; operator says owner
+    expect(asOwner).toMatchObject({ isOwner: true, ownerCertain: true, ownerBasis: "manual" });
+    const asGuest = await speak("owner", "Did you push the frontend PR?", "guest"); // voice said owner; operator says guest
+    expect(asGuest).toMatchObject({ isOwner: false, ownerCertain: false, ownerBasis: "manual" });
+    const auto = await speak("owner", "Back to work.");
+    expect(auto?.ownerBasis).toBe("enrolled");
+  });
+
+  it("a failed decision returns to listening, offers one retry, and the retry writes once", async () => {
+    let calls = 0;
+    const { events, store, session, speak } = mk((ctx) => {
+      calls++;
+      if (calls === 1) throw new Error("Claude timed out");
+      return ctx.role === "owner"
+        ? { action: "LEARN", memoryProposal: { kind: "fact", canonicalQuestion: "PR?", factualAnswer: "Pushed", sourceUtteranceIds: [ctx.utterance.id], isTransient: false, supersedesMemoryId: null, context: null } }
+        : {};
+    });
+    await speak("owner", "The PR is pushed and waiting for review.");
+    const err = events.find((e) => e.type === "error");
+    expect(err && err.type === "error" && err.retryTurnId).toBeTruthy();
+    const states = events.flatMap((e) => (e.type === "state.changed" ? [e.state] : []));
+    expect(states.at(-1)).not.toBe("thinking");
+    expect(await store.listAllMemories()).toHaveLength(0);
+    const id = err && err.type === "error" ? err.retryTurnId! : "";
+    expect(session.retry(id)).toBe(true);
+    await session.idle();
+    expect(session.retry(id)).toBe(false); // once
+    expect(await store.listAllMemories()).toHaveLength(1);
+  });
+
+  it("a transcription reconnect forgets what the old speaker labels meant", async () => {
+    const { store, session, speak } = mk(() => ({}));
+    const bob = await store.createPerson({ name: "Bob", relationship: null, tone: "sarcastic", priority: false });
+    await session.bindSpeaker("sm-1", "S2", bob.id);
+    await speak("S2", "hello there everyone");
+    session.clearSpeechBindings("sm-1");
+    expect(session.personFor("sm-1", "S2")).toBeNull();
+    expect((await session.snapshot()).session.bindings).toEqual({});
+  });
+
+  it("a hung Moss search falls back to recent memories and says why", async () => {
+    const hung: MemoryIndex = { ...new FakeIndex(), search: () => new Promise(() => {}), upsert: async () => true, remove: async () => {}, rebuild: async () => true, getStatus: () => new FakeIndex().getStatus() };
+    const { events, speak } = mk(() => ({ action: "WAIT", isQuestion: true }), hung, { searchTimeoutMs: 50 });
+    await speak("S2", "Did you push the frontend PR?");
+    const d = events.find((e) => e.type === "decision.completed");
+    expect(d && d.type === "decision.completed" && d.decision.retrieval).toMatchObject({ mode: "unavailable", fallbackReason: "Moss didn't answer within 0.05 s" });
+  });
+
+  it("a reset during a slow decision: the old answer is never spoken and nothing is written", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { events, store, session } = mk(async (ctx) => {
+      await gate;
+      return { action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0]?.id ?? "x"], factualAnswer: "x", spokenText: "Old run's answer." };
+    });
+    await session.addMemory({ kind: "faq", canonicalQuestion: "PR?", factualAnswer: "Pushed", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null }, null);
+    void session.ingest({ source: "speech", connectionId: "sm-1", asOwner: false, text: "Did you push the frontend PR?", speakerLabel: "S2", providerEventId: "q1", echoFiltered: true });
+    await new Promise((r) => setTimeout(r, 20));
+    await session.reset({ wipe: true, everything: true });
+    release();
+    await session.idle();
+    expect(events.filter((e) => e.type === "speech.ready" && e.text === "Old run's answer.")).toHaveLength(0);
+    expect(await store.listQuestionEvents()).toHaveLength(0);
+  });
+});
+
+describe("a trailing fragment doesn't cancel a question", () => {
+  it("'Did you push the PR?' followed at once by 'Did' still gets answered", async () => {
+    const events: ServerEvent[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const session = new Session(
+      new JsonMemoryStore(null),
+      async (ctx) => {
+        await gate; // the fragment arrives while the question is being decided
+        return ctx.memories[0] && ctx.utterance.text.includes("push")
+          ? { ...base, action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0].id], factualAnswer: "Pushed", spokenText: "Pushed." }
+          : base; // the fragment alone is nothing to answer
+      },
+      new FakeIndex(),
+      { ownerName: "Preston", emit: (e) => events.push(e), speechGuardMs: 50 },
+    );
+    session.setSpeechConnection("sm-1");
+    session.setOwnerSpeaker("owner");
+    await session.addMemory({ kind: "faq", canonicalQuestion: "PR?", factualAnswer: "Pushed", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null }, null);
+    const t = Date.now();
+    const turn = (text: string, id: string, at: number) =>
+      session.ingest({ source: "speech", connectionId: "sm-1", asOwner: false, text, speakerLabel: "S2", providerEventId: id, echoFiltered: true, startedAt: at, endedAt: at + 500 });
+    await turn("Did you push the frontend PR yet?", "q", t);
+    await turn("Did", "frag", t + 800);
+    release();
+    await session.idle();
+    expect(events.filter((e) => e.type === "speech.ready").map((e) => (e.type === "speech.ready" ? e.text : ""))).toEqual(["Pushed."]);
+  });
+
+  it("a short fragment after a finished question is not answered a second time", async () => {
+    const events: ServerEvent[] = [];
+    const answer = (ctx: DecisionContext) =>
+      ctx.memories[0] ? { ...base, action: "ANSWER" as const, isQuestion: true, memoryIds: [ctx.memories[0].id], factualAnswer: "Pushed", spokenText: `Pushed (${ctx.utterance.text}).` } : base;
+    const session = new Session(new JsonMemoryStore(null), async (ctx) => answer(ctx), new FakeIndex(), { ownerName: "Preston", emit: (e) => events.push(e), speechGuardMs: 50 });
+    session.setSpeechConnection("sm-1");
+    session.setOwnerSpeaker("owner");
+    await session.addMemory({ kind: "faq", canonicalQuestion: "PR?", factualAnswer: "Pushed", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null }, null);
+    const t = Date.now();
+    const turn = async (text: string, id: string, at: number) => {
+      await session.ingest({ source: "speech", connectionId: "sm-1", asOwner: false, text, speakerLabel: "S2", providerEventId: id, echoFiltered: true, startedAt: at, endedAt: at + 500 });
+      await session.idle();
+    };
+    await turn("Did you push the frontend PR yet?", "q", t);
+    await turn("Did", "frag", t + 800);
+    await turn("Did you push it?", "again", t + 9000); // a real repeat later is still answered
+    expect(events.flatMap((e) => (e.type === "speech.ready" ? [e.text] : []))).toEqual(["Pushed (Did you push the frontend PR yet?).", "Pushed (Did you push it?)."]);
+  });
+});
+
+describe("a hung provider can't freeze the demo", () => {
+  it("a decision that never returns fails into Retry after the deadline, and a late answer is ignored", async () => {
+    const events: ServerEvent[] = [];
+    const session = new Session(new JsonMemoryStore(null), () => new Promise(() => {}), new FakeIndex(), {
+      ownerName: "Preston",
+      emit: (e) => events.push(e),
+      decisionTimeoutMs: 40,
+    });
+    await session.ingest({ text: "Did you push the frontend PR?", speakerLabel: "guest-A", connectionId: TYPED_CONNECTION, providerEventId: "1", source: "typed" });
+    await session.idle();
+    const err = events.find((e) => e.type === "error");
+    expect(err && err.type === "error" && err.message).toMatch(/Claude didn't answer within 0.04 s/);
+    expect(err && err.type === "error" && err.retryTurnId).toBeTruthy();
+    expect(events.filter((e) => e.type === "state.changed").at(-1)).toMatchObject({ state: "idle" });
+  });
+});

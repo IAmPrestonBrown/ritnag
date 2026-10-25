@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -10,6 +11,7 @@ import { Session, TYPED_CONNECTION } from "./session";
 import { SYSTEM_PROMPT, buildUserMessage, type Decider } from "./decision";
 import { claudeDecide, claudeText, anthropicModel } from "./providers/claude";
 import { REPORT_SYSTEM } from "./report";
+import { checkProviders } from "./health";
 import { synthesizeStream, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
@@ -59,7 +61,14 @@ const root = resolve(import.meta.dirname, "..");
 const isProd = process.env.NODE_ENV === "production";
 
 const token = loadWorkspaceToken(resolve(root, "data/workspace-token"));
-const store = new JsonMemoryStore(resolve(root, "data/imp-memory.json"));
+// Demo profile (npm run demo): its own records file and its own Moss index, so "Start fresh demo" can
+// wipe demo data without touching everyday memories or any other index.
+const PROFILE: "demo" | "everyday" = process.env.IMP_PROFILE === "demo" ? "demo" : "everyday";
+if (PROFILE === "demo") {
+  process.env.MOSS_INDEX_NAME = `${process.env.MOSS_INDEX_NAME || "imp-memories"}-demo`;
+  mkdirSync(resolve(root, "data/demo"), { recursive: true });
+}
+const store = new JsonMemoryStore(resolve(root, PROFILE === "demo" ? "data/demo/imp-memory.json" : "data/imp-memory.json"));
 
 const clients = new Set<WebSocket>();
 
@@ -129,6 +138,7 @@ const voice = new OwnerVoice(
 );
 const session = new Session(store, decider, index, {
   ownerName: OWNER_NAME,
+  profile: PROFILE,
   emit,
   voiceProfile: () => voice.activeProfile(),
   voiceStatus: () => voice.status(),
@@ -168,7 +178,7 @@ async function refreshVisitorPrints() {
 void refreshVisitorPrints();
 voice.init();
 void session.rebuildIndex();
-void reactions.warm(); // local records -> Moss on every boot
+void reactions.warmUntilComplete(); // local records -> Moss on every boot
 
 const app = express();
 app.use("/api/director", express.json({ limit: "2mb" })); // whole demo timelines
@@ -361,6 +371,7 @@ app.post("/api/session/stop", async (_req, res) => {
 });
 
 app.post("/api/session/reset", async (req, res) => {
+  relay?.discardPending();
   await session.reset({ wipe: true, everything: req.body?.everything === true });
   await refreshVisitorPrints(); // "everything" forgets visitors' voices too
   res.json({ ok: true });
@@ -405,6 +416,76 @@ app.post("/api/director/say", (req, res) => {
 
 // Director: an agent (or `npm run director`) drives every open page with scripted commands or a timeline.
 let directorStatus: DirectorStatus | null = null;
+// ---- demo day ----
+
+/** Ready for the next judge: the demo index holds exactly the demo's active memories. */
+async function demoReadiness() {
+  const active = await store.listActiveMemories(Date.now(), 1000);
+  const idx = index.getStatus();
+  const problems: string[] = [];
+  if (!idx.configured) problems.push("Moss isn't configured: retrieval uses the recent-memories fallback.");
+  else if (!idx.ready) problems.push(`Moss index not ready${idx.lastError ? `: ${idx.lastError}` : ""}.`);
+  else if (idx.docCount !== active.length) problems.push(`Moss has ${idx.docCount} docs but ${active.length} memories are active.`);
+  return {
+    ready: problems.length === 0,
+    profile: PROFILE,
+    mode: session.demo?.mode ?? null,
+    generation: session.generation,
+    memories: active.length,
+    indexed: idx.docCount,
+    stt: session.stt,
+    problems,
+  };
+}
+
+app.get("/api/demo/ready", async (_req, res) => {
+  res.json(await demoReadiness());
+});
+
+app.post("/api/demo/start", async (req, res) => {
+  if (PROFILE !== "demo") {
+    return void res.status(409).json({ error: "Start fresh demo only runs in the demo profile (npm run demo), so everyday data is never wiped." });
+  }
+  const mode: "learn" | "prepared" = req.body?.mode === "prepared" ? "prepared" : "learn";
+  // the previous run must not leak into this one: words in flight, queued decisions, queued speech
+  relay?.discardPending();
+  await session.reset({ wipe: true, everything: true }); // new generation; demo store + demo index only
+  await refreshVisitorPrints();
+  session.setFocus(false);
+  if (mode === "prepared") {
+    // Clearly labeled sample data: the classic Bob scene, already taught.
+    const bob = await store.createPerson({ name: "Bob", relationship: "sample guest", tone: "sarcastic", priority: false });
+    await session.addMemory(
+      {
+        kind: "faq",
+        canonicalQuestion: "Did you push the frontend PR?",
+        factualAnswer: "Yes, it's pushed and waiting for review.",
+        sourceUtteranceIds: [],
+        sourcePersonId: null,
+        observedAt: Date.now(),
+        validUntil: null,
+        context: "prepared example",
+      },
+      null,
+    );
+    // typed "Guest" turns are Bob in this example
+    await session.bindSpeaker(TYPED_CONNECTION, "guest-A", bob.id, { quiet: true });
+  }
+  session.demo = { mode, startedAt: Date.now() };
+  await session.broadcast();
+  res.json(await demoReadiness());
+});
+
+app.post("/api/turn/retry", (req, res) => {
+  const id = typeof req.body?.utteranceId === "string" ? req.body.utteranceId : "";
+  if (!session.retry(id)) return void res.status(409).json({ error: "Nothing to retry (already retried, or a newer demo started)." });
+  res.json({ ok: true });
+});
+
+app.get("/api/health/check", async (_req, res) => {
+  res.json({ ...(await checkProviders(index)), stt: session.stt });
+});
+
 app.post("/api/director", (req, res) => {
   const b = body(DirectorRequest, req, res);
   if (!b) return;
@@ -466,6 +547,12 @@ server.on("upgrade", (req, socket, head) => {
         return;
       }
       const fail = (message: string) => ws.send(JSON.stringify({ type: "error", message, recoverable: true } satisfies ServerEvent));
+      if (msg.type === "speaker.assign") {
+        // "Owner speaking" / "Guest speaking" pressed (role) or released (null)
+        const m = msg as { role?: unknown; personId?: unknown };
+        const role = m.role === "owner" || m.role === "guest" ? m.role : null;
+        return void mine?.assign(role, typeof m.personId === "string" ? m.personId : null);
+      }
       if (msg.type === "mic.start") {
         if (sttProvider() === "deepgram" && !deepgramConfigured()) return void fail("No transcription configured (SPEECHMATICS_API_KEY or DEEPGRAM_API_KEY).");
         const rate = msg.sampleRate;
@@ -509,9 +596,10 @@ if (isProd) {
 
 server.listen(PORT, HOST, () => {
   const h = health();
-  console.log(`\n  Ritnag running → http://localhost:${PORT}/#token=${token}`);
+  console.log(`\n  Ritnag running → http://localhost:${PORT}/#token=${token}${PROFILE === "demo" ? "  [DEMO PROFILE: data/demo, Moss index " + process.env.MOSS_INDEX_NAME + "]" : ""}`);
   console.log(`  storage: local JSON (authoritative) · index: Moss ${h.providers.moss ? "configured" : "NOT configured"}`);
-  console.log(`  providers: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "ok" : "missing"}`).join(" ")}`);
+  // keys only: whether each provider actually answers is checked in the UI (Demo Mode → Check providers)
+  console.log(`  keys: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "configured" : "missing"}`).join(" ")}`);
   console.log(`  model: ${h.model}`);
   console.log(`  owner voice: ${h.voice.enrolled ? "enrolled (loading model…)" : "not enrolled — enroll from the UI"}`);
   const sm = voice.status().providerEnrolled;

@@ -37,6 +37,8 @@ Roast the repeat questions, not people. No jokes about appearance; the decision 
 
 **Fallbacks:** typed input in ⚙ Settings (say so out loud if you use it), the recorded video on the desktop, phone hotspot if Wi-Fi drops.
 
+**Running demos all day?** Use [DEMO_DAY.md](DEMO_DAY.md): `npm run demo`, push-to-talk, Start fresh demo, recovery.
+
 ## What the imp does on its own (all shown in the demo video)
 
 - **"Hey <owner>, who was that?"**: after the owner talks to a voice it doesn't know and the room goes quiet

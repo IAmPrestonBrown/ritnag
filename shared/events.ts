@@ -36,6 +36,10 @@ export interface VoiceStatus {
 
 export interface Snapshot {
   storage: "local-json";
+  /** "demo": separate demo records (npm run demo); "everyday": normal use. */
+  profile?: "everyday" | "demo";
+  /** The last "Start fresh demo" in the demo profile. */
+  demo?: { mode: "learn" | "prepared"; startedAt: number } | null;
   index: IndexStatus;
   ownerName: string;
   session: {
@@ -52,6 +56,8 @@ export interface Snapshot {
     suggestions: { connectionId: string; speakerLabel: string; personId: string; name: string }[];
     speechLabels: string[]; // labels heard on the current speech connection
     voice: VoiceStatus;
+    /** Live transcription connection (configured ≠ connected). */
+    stt?: { provider: string; state: "off" | "connecting" | "connected" | "reconnecting" | "failed"; detail: string | null };
   };
   people: Person[];
   memories: Memory[];
@@ -70,7 +76,7 @@ export interface DecisionSummary {
   responseId: string | null;
   latencyMs: number;
   note: string | null;
-  retrieval: { mode: "moss" | "unavailable"; hits: { id: string; score: number }[] };
+  retrieval: { mode: "moss" | "unavailable"; hits: { id: string; score: number }[]; fallbackReason?: string };
 }
 
 export type ServerEvent =
@@ -85,7 +91,7 @@ export type ServerEvent =
   | { type: "notice"; notice: Notice; generation: number }
   /** Relayed from POST /api/director to every open page (scripted demo; see docs/DIRECTOR.md). */
   | { type: "director"; request: DirectorRequest }
-  | { type: "error"; message: string; recoverable: boolean };
+  | { type: "error"; message: string; recoverable: boolean; retryTurnId?: string };
 
 /** A short pop-up for the room's big moments (toasts at the top of the screen). */
 export type NoticeKind = "person" | "question" | "repeat" | "name";

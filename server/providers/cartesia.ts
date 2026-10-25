@@ -1,6 +1,6 @@
 import type { Tone } from "../../shared/schemas";
 
-const CARTESIA_VERSION = "2026-08-14";
+export const CARTESIA_VERSION = "2026-08-14";
 
 /** Delivery follows the owner's chosen tone for the listener (Cartesia emotion + pace). */
 const DELIVERY: Record<Tone, { emotion?: string; speed: number; volume?: number }> = {

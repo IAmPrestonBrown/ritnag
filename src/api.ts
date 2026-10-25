@@ -66,14 +66,23 @@ export async function fetchSpeech(responseId: string): Promise<Blob> {
 export function connectEvents(onEvent: (e: ServerEvent) => void, onStatus: (open: boolean) => void) {
   let ws: WebSocket | null = null;
   let closed = false;
+  let attempt = 0;
+  let retry: ReturnType<typeof setTimeout> | null = null;
   const open = () => {
+    retry = null;
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/api/audio?token=${encodeURIComponent(token ?? "")}`);
-    ws.onopen = () => onStatus(true);
-    ws.onmessage = (m) => typeof m.data === "string" && onEvent(JSON.parse(m.data));
-    ws.onclose = () => {
+    const sock = new WebSocket(`${proto}://${location.host}/api/audio?token=${encodeURIComponent(token ?? "")}`);
+    ws = sock;
+    sock.onopen = () => {
+      attempt = 0;
+      onStatus(true);
+    };
+    sock.onmessage = (m) => typeof m.data === "string" && onEvent(JSON.parse(m.data));
+    sock.onclose = () => {
+      if (ws !== sock) return; // an older socket closing late
       onStatus(false);
-      if (!closed) setTimeout(open, 1000);
+      // bounded backoff: 1, 2, 4, 8 s, then every 8 s ("Reconnecting…" shows meanwhile)
+      if (!closed && !retry) retry = setTimeout(open, Math.min(8000, 1000 * 2 ** attempt++));
     };
   };
   open();
@@ -81,6 +90,7 @@ export function connectEvents(onEvent: (e: ServerEvent) => void, onStatus: (open
     socket: () => ws,
     close: () => {
       closed = true;
+      if (retry) clearTimeout(retry);
       ws?.close();
     },
   };
