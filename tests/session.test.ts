@@ -286,6 +286,21 @@ describe("session pipeline", () => {
     expect(order).toEqual(["visitor", "owner"]);
   });
 
+  it("in focus mode the imp doesn't talk back to banter, and deflects a person at most once per 30 s", async () => {
+    const { session, say, spoken } = setup((ctx) => ({
+      action: "WAIT",
+      isQuestion: ctx.utterance.text.endsWith("?"),
+      spokenText: "You'll have to ask the owner that one.",
+    }));
+    session.setFocus(true);
+    await say("guest-A", "Shut up, man!"); // banter: no reply
+    await say("guest-A", "Shut up, man, seriously!");
+    expect(spoken()).toHaveLength(0);
+    await say("guest-A", "What's his favorite food?"); // a real unknown question: one deflection
+    await say("guest-A", "Seriously, what's his favorite food?"); // within 30 s: held back
+    expect(spoken()).toHaveLength(1);
+  });
+
   it("a question split in two by transcription gets one reply, not two", async () => {
     const { session, events } = setup(() => ({ action: "ALERT_OWNER", isQuestion: true, isImportant: true, isActionRequest: true, alertReason: "approval" }));
     session.setSpeechConnection("dg-1");

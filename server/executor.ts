@@ -73,7 +73,8 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         return alertOr(d.alertReason?.trim() || "Needs the owner", d.spokenText);
       case "WAIT":
         // deflections ("ask Preston") are a focus-mode behavior; otherwise the owner is right there
-        return wait(ctx.focusMode ? d.spokenText : null);
+        // ...and only for an actual question: remarks and banter get no reply at all
+        return wait(ctx.focusMode && d.isQuestion ? d.spokenText : null);
       default:
         // LEARN / UPDATE_PERSON from a guest are never honored.
         return wait();

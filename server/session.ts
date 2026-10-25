@@ -12,6 +12,8 @@ const RECENT_TURNS = 20;
 const SEARCH_TOP_K = 8;
 /** Same speaker resuming within this gap means the previous turn was a fragment of the same question. */
 const CONTINUATION_MS = 2500;
+/** Optional "ask the owner" deflections: at most one per person in this window. */
+const DEFLECT_COOLDOWN_MS = 30_000;
 const FALLBACK_MEMORIES = 50;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
@@ -116,6 +118,7 @@ export class Session {
   private inflight = new Set<Promise<void>>();
   // latest visitor turn per speaker, so a fragment that the speaker immediately continued is dropped
   private latestVisitorTurn = new Map<string, Utterance>();
+  private lastDeflection = new Map<string, number>();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
   /** Set only between the browser's "playback started" and "ended": the imp's voice is in the room. */
@@ -394,7 +397,18 @@ export class Session {
     if (generation !== this.generation) return;
     // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
     const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
-    const spoken = line && stripNames(line, { owner: this.opts.ownerName, others });
+    let spoken = line && stripNames(line, { owner: this.opts.ownerName, others });
+    // A deflection ("ask the owner") is optional talk. While the imp talks the mic is deaf (echo
+    // guard) and a new line cuts off the current one, so a chatty imp misses real questions. Never
+    // deflect over its own speech, and at most once per person per DEFLECT_COOLDOWN_MS.
+    if (spoken && effect.kind === "wait" && role === "visitor") {
+      const k = key(utterance.connectionId, utterance.speakerLabel);
+      const last = this.lastDeflection.get(k) ?? -Infinity;
+      if (this.isSpeaking() || this.now() - last < DEFLECT_COOLDOWN_MS) {
+        console.log(`[imp] held back a deflection: "${spoken.slice(0, 50)}"`);
+        spoken = null;
+      } else this.lastDeflection.set(k, this.now());
+    }
 
     const tone: Tone = ctx.identityCertain && role === "visitor" ? speaker?.tone ?? "neutral" : "neutral";
     const responseId = spoken ? this.queueSpeech(spoken, generation, tone) : null;
