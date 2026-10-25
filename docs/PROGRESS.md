@@ -18,6 +18,8 @@ _Last updated 2026-10-24._
 - Server smoke test without keys: health reports missing providers, `/api` returns 401 without the token, teach persists to local JSON, and the UI is served.
 - UI: SVG imp with idle/listening/thinking/speaking/alert/error states, caption, memory panel (cited memory highlighted, sources, times asked), people panel (tone and priority editable, per-person repeat count), transcript, alerts with acknowledge, focus mode, stop speaking, reset (with confirm), typed input, manual speaker correction, teach answer, Moss status pill, and a Rebuild index button.
 
+- **Headphones mode** (tests + build only, not yet tried with real devices): a **voice out** picker in the header sends the imp's voice to a chosen output (`setSinkId`, Chrome/Edge), e.g. the laptop speakers, so a visitor hears it while the owner wears headphones. Alerts (chime + system notification, `src/notify.ts`) stay on the system default output, i.e. the owner's headphones. Falls back to the default if the chosen output disappears. Works with Bluetooth headphones; wired headphones disable the Mac's built-in speakers, so use a USB/Bluetooth desk speaker.
+
 ## Verified against real providers (2026-10-24, typed input)
 
 Bob scenario run end to end on real **Claude + Moss**:

@@ -4,6 +4,7 @@ import { connectEvents, hasToken, post } from "./api";
 import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
 import { MicPicker } from "./components/MicPicker";
+import { SpeakerPicker } from "./components/SpeakerPicker";
 import { RecordClips } from "./components/RecordClips";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { useThinkingCaption } from "./components/thinking";
@@ -195,6 +196,7 @@ export function App() {
           mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
         </span>
         <MicPicker live={micOn} inUse={micLabel} />
+        <SpeakerPicker />
         {micOn && micLabel && /iphone|ipad/i.test(micLabel) && <span className="pill bad">using {micLabel}</span>}
         <span className="pill">memory: local JSON</span>
         <span className={`pill ${!idx.configured ? "bad" : idx.lastError ? "bad" : idx.ready ? "ok" : ""}`}>
