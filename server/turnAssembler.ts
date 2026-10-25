@@ -117,6 +117,8 @@ export class TurnAssembler {
     private readonly onTurn: (t: AssembledTurn) => void,
     private readonly onPartial: (speakerLabel: string, text: string) => void,
     private readonly silenceMs = 1200,
+    /** Words to discard before assembly, e.g. the imp's own voice picked up by the mic. */
+    private readonly dropWord: (w: DgWord) => boolean = () => false,
   ) {}
 
   handle(msg: { type?: string } & Partial<Omit<DgResults, "type">>) {
@@ -135,7 +137,8 @@ export class TurnAssembler {
     if (this.seen.has(key)) return;
     this.seen.add(key);
 
-    if (alt.words?.length) this.words.push(...alt.words);
+    const kept = (alt.words ?? []).filter((w) => !this.dropWord(w));
+    if (kept.length) this.words.push(...kept);
     if (msg.speech_final) this.flush();
     else this.armSilenceTimer();
   }
@@ -170,4 +173,28 @@ export class TurnAssembler {
   dispose() {
     if (this.timer) clearTimeout(this.timer);
   }
+}
+
+/** Stream-time spans (seconds) during which the imp was speaking or cooling down. */
+export type Span = [start: number, end: number];
+
+/**
+ * True if most of a turn was spoken while the imp was talking: its own voice coming back through the
+ * mic. Judged by when the audio happened, not when the transcript arrived (which can be a second later).
+ */
+export function mostlyDuringPlayback(spans: Span[], start: number, end: number, tailPadSec = 0.25): boolean {
+  const dur = Math.max(end - start, 0.01);
+  let covered = 0;
+  for (const [a, b] of spans) covered += Math.max(0, Math.min(end, b + tailPadSec) - Math.max(start, a));
+  return covered / dur > 0.5;
+}
+
+/** Records muted stream time, merging contiguous chunks and forgetting spans older than `keepSec`. */
+export function addMutedTime(spans: Span[], start: number, end: number, keepSec = 120): Span[] {
+  const last = spans.at(-1);
+  if (last && start - last[1] < 0.05) last[1] = end;
+  else spans.push([start, end]);
+  const horizon = end - keepSec;
+  while (spans.length && spans[0]![1] < horizon) spans.shift();
+  return spans;
 }

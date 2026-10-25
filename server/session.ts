@@ -192,6 +192,11 @@ export class Session {
 
   // ---------- turns ----------
 
+  /** True while the imp has a reply queued or playing (no cooldown): its voice may be in the mic right now. */
+  isSpeaking() {
+    return this.speakingResponseId !== null;
+  }
+
   /** True while the imp's own voice could be in the mic. */
   isMuted() {
     return this.speakingResponseId !== null || this.now() < this.mutedUntil;
