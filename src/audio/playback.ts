@@ -1,4 +1,5 @@
 import { fetchSpeech, post } from "../api";
+import { canChooseSpeaker, chosenSpeaker } from "./devices";
 
 /** Plays one response at a time; reports real playback start/end so the avatar and mic gate follow actual audio. */
 export class Player {
@@ -27,6 +28,8 @@ export class Player {
     this.url = URL.createObjectURL(blob);
     const audio = new Audio(this.url);
     this.audio = audio;
+    await routeToSpeaker(audio);
+    if (this.current !== responseId) return; // stopped while switching outputs
     audio.onplaying = () => {
       this.onSpeaking(true, text);
       void post("/api/playback", { responseId, phase: "started" });
@@ -58,5 +61,19 @@ export class Player {
     const id = this.current;
     this.audio?.pause();
     this.finish(id);
+  }
+}
+
+/**
+ * Sends the imp's voice to the output picked for the room, so a visitor hears it while the owner wears
+ * headphones. If that output is gone (unplugged speaker), it falls back to the system default.
+ */
+async function routeToSpeaker(audio: HTMLAudioElement) {
+  const sink = chosenSpeaker();
+  if (!sink || !canChooseSpeaker()) return;
+  try {
+    await audio.setSinkId(sink);
+  } catch (err) {
+    console.warn(`Imp speaker unavailable (${(err as Error).name}); using the system default output`);
   }
 }
