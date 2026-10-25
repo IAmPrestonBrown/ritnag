@@ -6,7 +6,6 @@ import { MicCapture } from "./audio/capture";
 import { MicPicker } from "./components/MicPicker";
 import { RecordClips } from "./components/RecordClips";
 import { ImpAvatar } from "./components/ImpAvatar";
-import { formatLatency, useThinkingCaption } from "./components/thinking";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
@@ -23,8 +22,6 @@ export function App() {
   const [mouthOpen, setMouthOpen] = useState(false);
   // A decision is in flight. Ends at decision.completed, not at playback, so a TTS failure never hides the answer.
   const [deciding, setDeciding] = useState(false);
-  // Before any early return: hooks must run in the same order every render.
-  const thinkingCaption = useThinkingCaption(!speaking && deciding);
   const [lastDecision, setLastDecision] = useState<DecisionSummary | null>(null);
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +128,7 @@ export function App() {
   }, [speaking]);
 
   // Rotate the thinking caption so the wait reads as the imp working, not lag.
-  const isThinking = !speaking && impState === "thinking";
+  const isThinking = !speaking && deciding;
   useEffect(() => {
     setThinkTick(0);
     if (!isThinking) return;
@@ -231,26 +228,12 @@ export function App() {
           <p className={`caption ${isThinking ? "caption--thinking" : ""}`} aria-live="polite">
             {isThinking ? thinkingLine(thinkTick) : caption ?? "Waiting for an interruption."}
           </p>
-          {demo && receipt && <p className="receipt">{receipt}</p>}
-          {lastDecision && (
+          {/* The last decision's receipt and line are stale while the next one is in flight. */}
+          {!isThinking && demo && receipt && <p className="receipt">{receipt}</p>}
+          {!isThinking && lastDecision && (
             <p className="decision">
               <span className="decision-action">{lastDecision.action}</span>
               {decisionDetails(lastDecision).map((part) => ` · ${part}`)}
-          <p className={`caption${thinkingCaption ? " thinking" : ""}`} aria-live="polite">
-            {thinkingCaption ?? caption ?? "Waiting for an interruption."}
-          </p>
-          {demo && receipt && !thinkingCaption && (
-            <p className="receipt">
-              {receipt} · {formatLatency(lastDecision!.latencyMs)}
-            </p>
-          )}
-          {!demo && lastDecision && (
-            <p className="decision muted">
-              {lastDecision.action}
-              {lastDecision.memoryIds.length > 0 && ` · cited ${lastDecision.memoryIds.join(", ")}`}
-              {` · ${lastDecision.retrieval.mode === "moss" ? `Moss ${lastDecision.retrieval.hits.length} hits` : "Moss unavailable"}`}
-              {` · ${formatLatency(lastDecision.latencyMs)}`}
-              {lastDecision.note && ` · ${lastDecision.note}`}
             </p>
           )}
           <SessionControls
