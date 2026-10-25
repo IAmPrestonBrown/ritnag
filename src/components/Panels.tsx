@@ -2,7 +2,7 @@ import type { Snapshot } from "../../shared/events";
 import type { Person, Tone } from "../../shared/schemas";
 import { post } from "../api";
 
-const TONES: Tone[] = ["neutral", "friendly", "sarcastic", "annoyed", "playful"];
+const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"];
 
 const speakerName = (s: Snapshot, u: Snapshot["transcript"][number]) =>
   u.isOwner ? `${s.ownerName} (owner)` : s.people.find((p) => p.id === u.personId)?.name ?? `unknown · ${u.speakerLabel}`;

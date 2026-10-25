@@ -32,6 +32,7 @@ export interface IncomingTurn {
 
 interface PendingResponse {
   text: string;
+  tone: Tone;
   generation: number;
   createdAt: number;
 }
@@ -211,6 +212,9 @@ export class Session {
 
   private async process(utterance: Utterance, generation: number) {
     if (generation !== this.generation) return;
+    // Filler never reaches Claude: each call is ~1-3 s and turns are single-file, so chatter
+    // would otherwise delay the next real question.
+    if (!needsDecision(utterance, this.pendingQuestion !== null)) return;
     const started = this.now();
     this.setState("thinking", null);
 
@@ -263,7 +267,8 @@ export class Session {
     const spoken = await this.apply(effect, utterance, generation);
     if (generation !== this.generation) return;
 
-    const responseId = spoken ? this.queueSpeech(spoken, generation) : null;
+    const tone: Tone = ctx.identityCertain && role === "visitor" ? speaker?.tone ?? "neutral" : "neutral";
+    const responseId = spoken ? this.queueSpeech(spoken, generation, tone) : null;
     this.opts.emit({
       type: "decision.completed",
       generation,
@@ -455,27 +460,31 @@ export class Session {
 
   /** Speaks fixed text through the normal speech path (used by the Test voice control). */
   say(text: string) {
-    return this.queueSpeech(text, this.generation);
+    return this.queueSpeech(text, this.generation, "sarcastic");
   }
 
-  private queueSpeech(text: string, generation: number) {
+  private queueSpeech(text: string, generation: number, tone: Tone) {
     const responseId = randomUUID();
-    this.responses.set(responseId, { text, generation, createdAt: this.now() });
+    this.responses.set(responseId, { text, tone, generation, createdAt: this.now() });
     // Block mic input from the moment audio is requested, not just once it plays.
     this.speakingResponseId = responseId;
     const guard = this.opts.speechGuardMs ?? 15_000;
     setTimeout(() => {
       if (this.speakingResponseId === responseId) this.speakingResponseId = null;
     }, guard).unref?.();
-    this.opts.emit({ type: "speech.ready", responseId, text, generation });
+    this.opts.emit({ type: "speech.ready", responseId, text, tone, generation });
     return responseId;
   }
 
   /** Text for a checked, current response, or null if stale/unknown. */
   speechText(responseId: string): string | null {
+    return this.speechFor(responseId)?.text ?? null;
+  }
+
+  speechFor(responseId: string): { text: string; tone: Tone } | null {
     const r = this.responses.get(responseId);
     if (!r || r.generation !== this.generation) return null;
-    return r.text;
+    return { text: r.text, tone: r.tone };
   }
 
   playback(responseId: string, phase: "started" | "ended") {
@@ -562,6 +571,23 @@ export class Session {
 }
 
 const key = (connectionId: string, label: string) => `${connectionId}|${label}`;
+
+const QUESTION_START =
+  /^(who|what|when|where|why|how|which|is|are|was|were|did|do|does|can|could|will|would|should|shall|have|has|had|may|might|any|anyone)\b/i;
+const REQUEST = /\b(can you|could you|would you|tell me|do you know|approve|authori[sz]e|deploy|roll ?back|merge|confirm|sign off|ship it)\b/i;
+// case-sensitive on purpose: a capitalized word after "it's" is likely a name ("It's Bob")
+const SELF_INTRO = /\b(?:[Ii]t'?s|[Tt]his is|I'?m|I am)\s+[A-Z]/;
+const OWNER_CUE =
+  /\b(that was|this is|is my|be (nice|mean|sarcastic|nicer|meaner)|roast|tease|tone|priority|annoyed|pissed|stupid|sucks|done with|remember|heads up|fyi|note that)\b/i;
+
+/** Cheap pre-filter: does this turn need a decision call at all? Errs toward yes. */
+export function needsDecision(u: Utterance, questionPending: boolean): boolean {
+  const text = u.text.trim();
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (u.source === "typed") return true; // typed input is deliberate
+  if (u.isOwner) return questionPending || words >= 5 || OWNER_CUE.test(text);
+  return text.includes("?") || QUESTION_START.test(text) || REQUEST.test(text) || SELF_INTRO.test(text);
+}
 
 const effectAction = (e: Effect) =>
   ({ answer: "ANSWER", alert: "ALERT_OWNER", wait: "WAIT", learn: "LEARN", update_person: "UPDATE_PERSON" })[e.kind];

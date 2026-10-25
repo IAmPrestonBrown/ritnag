@@ -39,7 +39,24 @@ const token = loadWorkspaceToken(resolve(root, "data/workspace-token"));
 const store = new JsonMemoryStore(resolve(root, "data/imp-memory.json"));
 
 const clients = new Set<WebSocket>();
+
+// Synthesis starts the moment a reply is decided, in parallel with the event reaching the browser.
+type Clip = { audio: Buffer; contentType: string };
+const clips = new Map<string, Promise<Clip>>();
+const startSynthesis = (responseId: string, text: string, tone: Parameters<typeof synthesize>[1]) => {
+  if (!cartesiaConfigured() || clips.has(responseId)) return;
+  const t0 = Date.now();
+  const p = synthesize(text, tone).then((c) => {
+    console.log(`[imp] tts ready in ${Date.now() - t0}ms (${tone})`);
+    return c;
+  });
+  p.catch(() => {}); // surfaced when the browser requests it
+  clips.set(responseId, p);
+  setTimeout(() => clips.delete(responseId), 60_000).unref();
+};
+
 const emit = (e: ServerEvent) => {
+  if (e.type === "speech.ready") startSynthesis(e.responseId, e.text, e.tone);
   const msg = JSON.stringify(e);
   for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
 };
@@ -207,13 +224,13 @@ app.post("/api/session/reset", async (req, res) => {
 app.post("/api/speech", async (req, res) => {
   const b = body(SpeechRequest, req, res);
   if (!b) return;
-  const text = session.speechText(b.responseId);
-  if (!text) return void res.status(410).json({ error: "stale or unknown response" });
+  const speech = session.speechFor(b.responseId);
+  if (!speech) return void res.status(410).json({ error: "stale or unknown response" });
   if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
   try {
-    const t0 = Date.now();
-    const { audio, contentType } = await synthesize(text);
-    console.log(`[imp] tts ready in ${Date.now() - t0}ms`);
+    startSynthesis(b.responseId, speech.text, speech.tone);
+    const { audio, contentType } = await clips.get(b.responseId)!;
+    clips.delete(b.responseId);
     // Re-check: a Reset during synthesis must not let this play.
     if (!session.speechText(b.responseId)) return void res.status(410).json({ error: "stale response" });
     res.setHeader("Content-Type", contentType).send(audio);

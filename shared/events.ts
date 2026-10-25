@@ -1,4 +1,4 @@
-import type { Alert, Memory, Person, Utterance } from "./schemas";
+import type { Alert, Memory, Person, Tone, Utterance } from "./schemas";
 
 export type ImpState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "error";
 
@@ -56,7 +56,7 @@ export type ServerEvent =
   | { type: "speaker.bound"; speakerLabel: string; personId: string | null; generation: number }
   | { type: "state.changed"; state: ImpState; caption: string | null; generation: number }
   | { type: "decision.completed"; decision: DecisionSummary; generation: number }
-  | { type: "speech.ready"; responseId: string; text: string; generation: number }
+  | { type: "speech.ready"; responseId: string; text: string; tone: Tone; generation: number }
   | { type: "alert.created"; alert: Alert; generation: number }
   | { type: "error"; message: string; recoverable: boolean };
 

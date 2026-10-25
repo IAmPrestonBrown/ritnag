@@ -1,9 +1,22 @@
+import type { Tone } from "../../shared/schemas";
+
 const CARTESIA_VERSION = "2026-08-14";
+
+/** Delivery follows the owner's chosen tone for the listener (Cartesia emotion + pace). */
+const DELIVERY: Record<Tone, { emotion?: string; speed: number }> = {
+  neutral: { speed: 1.05 },
+  friendly: { emotion: "happy", speed: 1.05 },
+  playful: { emotion: "excited", speed: 1.08 },
+  sarcastic: { emotion: "sarcastic", speed: 1.05 },
+  annoyed: { emotion: "frustrated", speed: 1.12 },
+  savage: { emotion: "contempt", speed: 1.1 },
+};
 
 export const cartesiaConfigured = () => Boolean(process.env.CARTESIA_API_KEY && process.env.CARTESIA_VOICE_ID);
 
 /** One short, complete MP3 clip. Streaming can come later once playback is reliable. */
-export async function synthesize(text: string): Promise<{ audio: Buffer; contentType: string }> {
+export async function synthesize(text: string, tone: Tone = "neutral"): Promise<{ audio: Buffer; contentType: string }> {
+  const delivery = DELIVERY[tone];
   const res = await fetch("https://api.cartesia.ai/tts/bytes", {
     method: "POST",
     headers: {
@@ -17,6 +30,7 @@ export async function synthesize(text: string): Promise<{ audio: Buffer; content
       voice: { id: process.env.CARTESIA_VOICE_ID },
       language: "en",
       output_format: { container: "mp3", sample_rate: 44100, bit_rate: 128000 },
+      generation_config: { speed: delivery.speed, ...(delivery.emotion ? { emotion: delivery.emotion } : {}) },
     }),
   });
   if (!res.ok) {

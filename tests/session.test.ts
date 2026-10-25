@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JsonMemoryStore } from "../server/memory";
-import { Session, TYPED_CONNECTION, type MemoryIndex } from "../server/session";
+import { Session, TYPED_CONNECTION, needsDecision, type MemoryIndex } from "../server/session";
 import type { DecisionContext } from "../server/decision";
 import type { ServerEvent } from "../shared/events";
 import type { Decision, Memory } from "../shared/schemas";
@@ -334,5 +334,27 @@ describe("session pipeline", () => {
     await session.idle();
     expect(events.some((e) => e.type === "speech.ready")).toBe(false);
     expect(await store.listAlerts()).toHaveLength(0);
+  });
+});
+
+describe("needsDecision (filler gate)", () => {
+  const u = (text: string, isOwner: boolean, source: "speech" | "typed" = "speech") =>
+    ({ id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk1", personId: null, text, startedAt: 0, endedAt: 0, isOwner, source }) as const;
+  it("sends guest questions, requests, and self-intros", () => {
+    for (const t of ["Is the frontend up yet?", "did you push it", "Approve the rollback", "Hey, it's Bob again."]) {
+      expect(needsDecision(u(t, false), false)).toBe(true);
+    }
+  });
+  it("skips guest chatter", () => {
+    for (const t of ["Cool.", "I'll grab coffee.", "Spit the shit out.", "Uh-huh."]) expect(needsDecision(u(t, false), false)).toBe(false);
+  });
+  it("skips owner filler only when no question is pending", () => {
+    expect(needsDecision(u("Got it.", true), false)).toBe(false);
+    expect(needsDecision(u("Yes.", true), true)).toBe(true); // could be the answer
+    expect(needsDecision(u("He sucks.", true), false)).toBe(true); // tone cue
+    expect(needsDecision(u("The staging server is down until midnight.", true), false)).toBe(true);
+  });
+  it("always sends typed input", () => {
+    expect(needsDecision(u("ok", false, "typed"), false)).toBe(true);
   });
 });

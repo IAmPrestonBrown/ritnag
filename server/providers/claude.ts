@@ -23,10 +23,14 @@ export async function claudeDecide(system: string, user: string): Promise<Decisi
       const fallback = model.includes("haiku")
         ? {}
         : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
+      // One bounded classification + one-liner: thinking adds ~1 s and buys nothing here.
+      // Haiku accepts disabled thinking at effort <= high; other current models reject it.
+      const thinking = model.includes("haiku") ? { thinking: { type: "disabled" as const } } : {};
       const response = await getClient().beta.messages.parse({
         model,
-        max_tokens: 4000,
+        max_tokens: 2000,
         ...fallback,
+        ...thinking,
         system,
         messages: [{ role: "user", content: user }],
         output_config: { effort, format: betaZodOutputFormat(Decision) },
