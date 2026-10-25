@@ -42,7 +42,7 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 
 - [~] Slice 2: mic capture → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration; live speaker map. **Code done, needs live test.**
 - [ ] **Speaker ID (teammate):** owner voice onboarding + verifier + wording veto, per `docs/SPEAKER_ID.md`. A live test showed diarization alone mislabels the owner, so this blocks trustworthy voice learning.
-- [ ] Turn-splitting fix: assign speaker by majority speech time, split only on real handoffs (`docs/SPEAKER_ID.md` §7).
+- [x] Turn-splitting fix: speaker by majority speech time, flicker absorbed, splits only on real handoffs (`docs/SPEAKER_ID.md` §7).
 - [ ] Slice 3: live Bob scene end to end by voice.
 - [ ] Slice 4: priority + focus escalation by voice; one meeting fact recalled later.
 - [ ] Slice 5: polish, venue rehearsal, video, submission.

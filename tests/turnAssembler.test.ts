@@ -43,13 +43,47 @@ describe("TurnAssembler", () => {
     expect(turns.map((t) => t.text)).toEqual(["Yes it's pushed."]);
   });
 
-  it("splits one segment with two speakers into two turns", () => {
+  it("splits a real handoff, including a short reply after a pause", () => {
     const { a, turns } = make();
-    a.handle(results([...words(1, 0, "Is it up?"), ...words(0, 1, "Yes.")], { is_final: true, speech_final: true }));
+    // "Is it up?" ends at 0.85 s; "Yes." starts at 1.4 s
+    a.handle(results([...words(1, 0, "Is it up?"), ...words(0, 1.4, "Yes.")], { is_final: true, speech_final: true }));
     expect(turns.map((t) => [t.speakerLabel, t.text])).toEqual([
       ["spk1", "Is it up?"],
       ["spk0", "Yes."],
     ]);
+  });
+
+  it("splits two substantial runs from different speakers", () => {
+    const { a, turns } = make();
+    a.handle(
+      results([...words(1, 0, "Did you push the PR?"), ...words(0, 1.6, "Yes it is pushed.")], { is_final: true, speech_final: true }),
+    );
+    expect(turns.map((t) => t.speakerLabel)).toEqual(["spk1", "spk0"]);
+  });
+
+  it("absorbs a one-word label flicker in the middle of a sentence", () => {
+    const { a, turns } = make();
+    const ws = words(0, 0, "This is the dumbest thing I ever seen.");
+    ws[6]!.speaker = 2; // "ever" mislabeled
+    a.handle(results(ws, { is_final: true, speech_final: true }));
+    expect(turns.map((t) => [t.speakerLabel, t.text])).toEqual([["spk0", "This is the dumbest thing I ever seen."]]);
+  });
+
+  it("absorbs a trailing flicker word with no pause before it", () => {
+    const { a, turns } = make();
+    const ws = words(0, 0, "Spit the shit out already");
+    ws[4]!.speaker = 1;
+    a.handle(results(ws, { is_final: true, speech_final: true }));
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.speakerLabel).toBe("spk0");
+  });
+
+  it("attributes a merged turn to the speaker with the most speech time", () => {
+    const { a, turns } = make();
+    const ws = words(1, 0, "Is the frontend code up yet?");
+    ws[0]!.speaker = 0; // first word flickers to the owner's label
+    a.handle(results(ws, { is_final: true, speech_final: true }));
+    expect(turns.map((t) => t.speakerLabel)).toEqual(["spk1"]);
   });
 
   it("ignores a replayed final segment", () => {

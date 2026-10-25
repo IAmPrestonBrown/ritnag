@@ -145,14 +145,15 @@ Executor rules (`server/executor.ts`, `server/session.ts`):
 
 Transcript text remains untrusted data. The prompt already tells Claude so, and these fields are observations, not instructions.
 
-## 7. Turn splitting fix (separate task, small)
+## 7. Turn splitting fix (done 2026-10-24)
 
-`TurnAssembler.flush()` currently starts a new turn whenever any word's speaker differs, so a single flickering word fragments a sentence. Change it to:
+`TurnAssembler` used to start a new turn whenever any word's label changed, so one flickering word could fragment a sentence. `resolveRuns()` in `server/turnAssembler.ts` now works like this:
 
-- Assign each utterance (between `speech_final`/`UtteranceEnd`) to the speaker with the **most speech time**.
-- Split only when another speaker holds a run of at least ~0.8 s or 3 words.
+- A short run (under 3 words and under 0.8 s) **between** other runs (A B A) is always treated as flicker and absorbed.
+- A short run at the **edge** is absorbed unless a pause of 0.3 s or more separates it. A real "Yes." reply usually has one.
+- Each resulting turn is attributed to the speaker with the **most speech time**, not to its first word.
 
-Add test cases to `tests/turnAssembler.test.ts` for a one-word flicker (no split) and a real handoff (split).
+Covered by `tests/turnAssembler.test.ts`. This reduces fragmentation. It does **not** fix diarization giving the owner's label to someone else; that needs §3–§5.
 
 ## 8. Where it plugs into the current code
 

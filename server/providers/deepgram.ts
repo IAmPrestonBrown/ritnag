@@ -13,7 +13,7 @@ export function openDeepgram(): WebSocket {
     interim_results: "true",
     smart_format: "true",
     punctuate: "true",
-    endpointing: process.env.DEEPGRAM_ENDPOINTING_MS || "300",
+    endpointing: process.env.DEEPGRAM_ENDPOINTING_MS || "500",
     utterance_end_ms: process.env.DEEPGRAM_UTTERANCE_END_MS || "1000",
   });
   return new WebSocket(`wss://api.deepgram.com/v1/listen?${params}`, {
