@@ -95,7 +95,7 @@ Settings → Demo → **Restart listening** starts a new transcription session a
 | Symptom | What to do |
 | --- | --- |
 | Level bar next to "Listening" flat | Settings → Audio → mic (pick the right one; never the iPhone). Restart listening. Check the macOS input level. Meanwhile use typed input |
-| Speech-to-text `reconnecting` / `failed` | It retries itself (1, 2, 4, 8 s). After a reconnect the speaker names are cleared on purpose: hold the owner / guest buttons. If it ends in `failed`, click Start listening again. Meanwhile use typed input |
+| Speech-to-text `reconnecting` / `failed` | It retries itself (1, 2, 4, then every 8 s, for about 45 s). After a reconnect the speaker names are cleared on purpose: hold the owner / guest buttons. If it ends in `failed`, click Start listening again. Meanwhile use typed input |
 | Top bar says "Reconnecting…" | The page lost the server: it retries itself. If the terminal shows the server died, run `npm run demo` again (demo data is kept) |
 | Venue wifi is bad | Switch the laptop to a phone hotspot, then Restart listening and Check providers |
 | Receipt says "(Moss unavailable: searched recent memories)" | Moss didn't answer: Ritnag still answers from recent memories and says so. Settings → Status → Rebuild memory index, or Start fresh demo again |

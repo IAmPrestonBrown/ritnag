@@ -7,7 +7,8 @@ import type { Session } from "./session";
 import type { ServerEvent } from "../shared/events";
 
 const RING_SECONDS = 60;
-const MAX_RECONNECTS = 4;
+// a flaky network can take several tries (backoff 1, 2, 4, 8, 8… s: about 45 s in all)
+const MAX_RECONNECTS = 8;
 const SLICE_PAD_SEC = 0.15;
 
 /** Scores one turn's audio against the owner profile (OwnerVoice in production). */
@@ -154,7 +155,7 @@ export class AudioRelay {
     if (this.reconnects >= MAX_RECONNECTS) {
       return this.fail(`${message} Start listening again; speakers need re-confirming.`);
     }
-    const wait = 1000 * 2 ** this.reconnects++;
+    const wait = Math.min(8000, 1000 * 2 ** this.reconnects++);
     this.session.setStt("reconnecting", this.stt.name, `${message} Retry ${this.reconnects}/${MAX_RECONNECTS} in ${wait / 1000} s`);
     console.warn(`[imp] ${message} Reconnecting in ${wait / 1000}s (attempt ${this.reconnects}/${MAX_RECONNECTS}).`);
     const old = this.stt;

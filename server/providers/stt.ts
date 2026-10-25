@@ -114,12 +114,13 @@ function openSpeechmatics(sampleRate: number, h: SttHandlers, enrolled: SpeakerE
   let seq = 0;
   let sentBytes = 0;
   const debug = process.env.SPEECHMATICS_DEBUG === "1";
-  // a handshake that never completes would leave the mic "connecting" forever: fail into the reconnect path
+  // a handshake that never completes would leave the mic "connecting" forever: fail into the reconnect path.
+  // Generous: on a hotspot the handshake measured 0.5–11 s and still worked.
   const startTimer = setTimeout(() => {
     if (started) return;
-    h.onFail("Speechmatics didn't start within 10 s (network?).");
+    h.onFail("Speechmatics didn't start within 20 s (network?).");
     ws.terminate();
-  }, 10_000);
+  }, 20_000);
   startTimer.unref();
   const audioSec = () => sentBytes / 2 / sampleRate;
   ws.on("open", () => {
