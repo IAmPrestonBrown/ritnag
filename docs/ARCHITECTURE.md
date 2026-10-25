@@ -1,12 +1,12 @@
 # Architecture
 
-Current as of 2026-10-24 (Moss + Cartesia revision).
+Current as of 2026-10-25.
 
 ```mermaid
 flowchart TD
   A[Browser mic] -->|WS /api/audio| B[Node relay]
   T[Typed input] -->|POST /api/turn| D
-  B --> C[Deepgram live STT + diarization]
+  B --> C[Speechmatics live STT + diarization + enrolled voices; Deepgram fallback]
   C --> D[Turn assembly + owner routing]
   D --> S[Moss SessionIndex search]
   S -->|ids + scores| R[Resolve to active local records]
@@ -25,13 +25,13 @@ flowchart TD
 
 | Component | Owns | Does not own |
 | --- | --- | --- |
-| Deepgram | Transcription, per-connection speaker labels | Persistent identity |
-| Session (`server/session.ts`) | Speaker-label → person bindings for the current connection, single-flight decision queue, generation guard, half-duplex mic gate | Persistence |
+| Speechmatics (`server/providers/stt.ts`) | Transcription, speaker labels, recognizing enrolled voices (owner, and visitors the owner named) | Who may teach (the session decides) |
+| Session (`server/session.ts`) | Speaker-label → person bindings for the current connection; owner turns in order, visitor turns in parallel; generation guard; echo gate; "who was that?"; pop-up notices; day report | Persistence |
 | Local JSON (`server/memory.ts`) | **Source of truth**: people, tone, priority, transcripts, memories, question events, alerts | Search |
 | Moss (`server/providers/moss.ts`) | Semantic + keyword retrieval over memories. Doc id = local memory id | Truth, freshness, speaker ID |
 | Claude (`server/providers/claude.ts`, `server/decision.ts`) | Judging whether retrieved memories actually answer the question, importance, learning extraction, person-specific wording | Executing anything |
 | Executor (`server/executor.ts`) | What is allowed: guests can't teach or rename; answers must cite retrieved, active memory ids; approvals always escalate | Wording |
-| Cartesia (`server/providers/cartesia.ts`) | Voice | — |
+| Cartesia (`server/providers/cartesia.ts`) | Voice: streamed replies and pre-made reaction clips | — |
 
 ## Visitor turn
 
@@ -45,7 +45,14 @@ flowchart TD
 ## Owner turn
 
 - `LEARN` writes the memory locally first, then upserts it into Moss. A superseded memory is removed from the index.
-- `UPDATE_PERSON` binds the single pending unknown visitor's label. If there are several, the imp asks "Which one?" and the UI selector resolves it.
+- `UPDATE_PERSON` binds the single pending unknown visitor's label. If there are several, the imp asks "Which one?" and the UI selector resolves it. One turn may also carry a fact ("that was Preston… CC me on the emails"): both are applied.
+- A newly named voice's recent audio becomes a Speechmatics voiceprint (`data/imp-memory.json`, `voiceprints`), enrolled on the next connection so that person is recognized automatically (docs/SPEAKER_ID.md §14).
+- "Report on the day" skips the decision and speaks a recap built from the question log (`server/report.ts`).
+
+## Director mode
+
+`src/director.ts` can drive every UI element from a timed script (`docs/DIRECTOR.md`), for recordings that line up
+with filmed footage. It only changes what the page displays; it never touches the store, the index or decisions.
 
 ## Moss index lifecycle
 

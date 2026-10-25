@@ -18,7 +18,8 @@ Verified 2026-10-24. Re-check organizer announcements before submitting.
 | **Moss** | Primary | Semantic retrieval over saved questions/answers/facts. Stable memory ids shared with local store. In-process `SessionIndex`, cloud push, rebuild-from-local | `server/providers/moss.ts`, `Session.retrieve()` in `server/session.ts` | Paraphrased question → correct memory; the decision line shows "Moss N hits" with cited id highlighted; Moss status pill + Rebuild index |
 | **Cartesia** | Primary | All spoken responses (`/tts/bytes`, sonic-3.6) | `server/providers/cartesia.ts`, `src/audio/playback.ts` | Same fact, different person → different delivery |
 | Anthropic | Used (category fit weaker) | Relevance/freshness judgment, routing, learning, wording | `server/decision.ts`, `server/providers/claude.ts` | Escalates "approve the rollback"; refuses to answer without support |
-| Deepgram | Technical choice, not a known sponsor | Live STT + diarization | `server/audioRelay.ts`, `server/providers/deepgram.ts`, `server/turnAssembler.ts` | Speaker labels in transcript; `npm run smoke:voice` |
+| Speechmatics | Technical choice, not a known sponsor | Live STT, diarization, enrolled voices (owner + recognized visitors) | `server/providers/stt.ts`, `server/audioRelay.ts`, `server/turnAssembler.ts` | "Leon detected" / "Jason detected · Voice recognized" pop-ups |
+| Deepgram | Fallback STT | Live STT + diarization when Speechmatics isn't configured | `server/providers/deepgram.ts` | — |
 | Convex | **Dropped** | None. Don't claim it | — | — |
 
 Anthropic's category is "Claude for Public Benefit". The implementation fits, but the theme fit for a comedy imp is weak. Don't invent an accessibility angle.
@@ -40,8 +41,8 @@ Before submitting to a category, read its full instructions and current judging 
 - [~] `.env.example` has names only; no secrets in the repo, the video, or screenshots (the server prints the workspace token, so crop it out). *Repo side checked 2026-10-24: every key/id in `.env.example` is empty and a grep for key patterns finds nothing. Video and screenshots still to check.*
 - [ ] `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/CALHACKS.md`, `docs/PROGRESS.md`, `docs/DEMO.md` current
 - [x] Project image: `assets/ritnag-cover.png` (1500×1000, 3:2), source `assets/cover.html`
-- [ ] Repo link (public or shared with judges). *The repo is **private** as of 2026-10-24: make it public or add judges before submitting. Owner decision.*
-- [ ] Short video of real behavior (live learning, recall, escalation)
+- [x] Repo link: public as of 2026-10-25.
+- [x] Video: filmed scene with a scripted UI re-enactment synced to it (disclosed in the README and Devpost text); every behavior shown runs live.
 - [~] Devpost text: the interruption problem, who uses it, what we built, architecture, real Moss/Cartesia usage with code paths, limitations, and what was built during the event. *Drafted in `docs/DEVPOST.md`; two lines marked **[update after rehearsal]**.*
 - [ ] Honest split between live behavior, seeded facts, manual corrections, and future work
 - [ ] Moss + Cartesia prize categories entered, instructions re-read

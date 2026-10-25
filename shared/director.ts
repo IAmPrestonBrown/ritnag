@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Tone } from "./schemas";
 
 /**
- * Director: drives every part of the screen from a script, so a recorded demo looks live without
+ * Director: drives every part of the screen from a script (a re-enactment for recordings), without
  * anything being heard or decided. One JSON command language, used by the timeline player, the
  * browser API (window.ritnag), the HTTP endpoint (POST /api/director) and `npm run director`.
  * See docs/DIRECTOR.md.

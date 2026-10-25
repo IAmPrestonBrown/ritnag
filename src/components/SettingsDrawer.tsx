@@ -132,7 +132,7 @@ function DirectorControls() {
   return (
     <>
       <p className="muted">
-        Press <kbd>N</kbd> for the next cue (one paragraph). Rows, pop-ups and the imp's lines look live; nothing is heard or
+        Press <kbd>N</kbd> for the next cue (one paragraph). Rows, pop-ups and the imp's lines play on the real UI; nothing is heard or
         decided. Cue {stage.cue} of {parseScript(script).length}
         {stage.playing ? ` · timeline playing (${Math.round((stage.position ?? 0) / 1000)} s)` : ""}.
       </p>

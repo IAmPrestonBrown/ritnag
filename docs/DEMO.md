@@ -61,6 +61,6 @@ Four pop-ups appear at the top of the screen, each with a draining time bar, the
 
 ## Director mode (scripted demo video)
 
-Everything on screen can be scripted and played on a timeline so a recording looks live. Hand-driven: Settings →
+Everything on screen can be scripted and played on a timeline, for a recording that lines up with filmed footage. Hand-driven: Settings →
 Director, press **N** per cue. Timed, or driven by an agent: see [DIRECTOR.md](DIRECTOR.md)
 (`npm run director -- play docs/director/example-timeline.json`). `npm run director -- live` returns to the real app.

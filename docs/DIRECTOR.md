@@ -1,9 +1,14 @@
-# Director: scripted demos that look live
+# Director: scripted UI re-enactments for recordings
 
 Director mode drives **every part of the Ritnag screen** from a script: transcript rows (streamed word by word),
 who is speaking, the imp's pose, caption and voice, the "why" receipt, pop-up notices, the alert box, memory
 cards and counts, people, the listening/focus chips, the side tab, the error banner and projector mode.
-Nothing is heard or decided while it runs, but it looks like the live app.
+Nothing is heard or decided while it runs: it's a re-enactment on the real UI, not a capture of a live run.
+
+**How we used it:** the screen recording in our demo video was made with this, from
+[`director/demo-1024.json`](director/demo-1024.json), so the UI lines up frame for frame with the filmed scene. We
+say so in the README and the Devpost text. Every behavior the video shows is implemented and runs live
+(`docs/PROGRESS.md`).
 
 Typical use: cut the demo video from real clips, write a **timeline** whose `at` times match the cut, start a
 screen recording of the Ritnag page, then play the timeline. Overlay the real audio in the edit.

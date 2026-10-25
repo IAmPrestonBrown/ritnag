@@ -4,7 +4,7 @@ import type { Alert, Memory, Person, Tone, Utterance } from "../shared/schemas";
 import { DirectorCommand, Timeline, type DirectorRequest, type DirectorStatus, type TimedCommand } from "../shared/director";
 
 /**
- * Director mode: a script drives the whole screen so a recorded demo looks live, but nothing is heard
+ * Director mode: a script drives the whole screen (a re-enactment for recordings); nothing is heard
  * or decided. Commands are defined in shared/director.ts and documented in docs/DIRECTOR.md.
  *
  * Three ways in, all the same commands:
