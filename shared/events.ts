@@ -24,6 +24,8 @@ export interface Snapshot {
     ownerSpeakerLabel: string | null;
     bindings: Record<string, string>; // speakerLabel -> personId (this connection only)
     pendingUnknownSpeaker: string | null;
+    calibration: { active: boolean; candidate: string | null };
+    speechLabels: string[]; // labels heard on the current speech connection
   };
   people: Person[];
   memories: Memory[];

@@ -37,6 +37,8 @@ input { flex: 1; min-width: 0; }
 .pill.live { color: #fff; background: var(--bad); border-color: var(--bad); }
 .banner { border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .banner.warn { background: #3b3014; color: var(--alert); }
+.banner.calibrate { background: #13303a; color: #9fe3ff; }
+.small-print { font-size: 12px; margin: 6px 0 0; }
 .banner.err { background: #3b1620; color: #ffb3bb; }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; }

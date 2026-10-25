@@ -4,10 +4,24 @@ import { post } from "../api";
 
 const TYPED_SPEAKERS = ["owner", "guest-A", "guest-B", "guest-C"];
 
-export function SessionControls({ snapshot, onStopSpeaking }: { snapshot: Snapshot; onStopSpeaking: () => void }) {
+export function SessionControls({
+  snapshot,
+  onStopSpeaking,
+  micOn,
+  onToggleMic,
+}: {
+  snapshot: Snapshot;
+  onStopSpeaking: () => void;
+  micOn: boolean;
+  onToggleMic: () => void;
+}) {
   const [confirmReset, setConfirmReset] = useState(false);
   return (
     <div className="controls">
+      <button className={micOn ? "on" : ""} onClick={onToggleMic}>
+        {micOn ? "Stop listening" : "Start listening"}
+      </button>
+      {snapshot.session.listening && <button onClick={() => post("/api/owner/calibrate")}>Recalibrate owner</button>}
       <button
         className={snapshot.session.focusMode ? "on" : ""}
         onClick={() => post("/api/focus", { focusMode: !snapshot.session.focusMode })}
@@ -105,5 +119,65 @@ export function DebugDrawer({ snapshot }: { snapshot: Snapshot }) {
       </div>
       {error && <p className="error">{error}</p>}
     </details>
+  );
+}
+
+/** Owner calibration: shown on every new mic connection until the owner's label is confirmed. */
+export function CalibrationBar({ snapshot }: { snapshot: Snapshot }) {
+  const { calibration, listening } = snapshot.session;
+  if (!listening || !calibration.active) return null;
+  return (
+    <div className="banner calibrate">
+      {calibration.candidate ? (
+        <>
+          Heard <strong>{calibration.candidate}</strong>. Was that you, {snapshot.ownerName}?{" "}
+          <button className="small" onClick={() => post("/api/owner/speaker", { speakerLabel: calibration.candidate })}>
+            Yes, that's me
+          </button>{" "}
+          <button className="small" onClick={() => post("/api/owner/calibrate")}>
+            Try again
+          </button>
+        </>
+      ) : (
+        <>
+          Calibrating: {snapshot.ownerName}, say <em>“Hey imp, it's {snapshot.ownerName}.”</em>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Live speaker labels for this connection. Manual mapping is a recovery control, not voice recognition. */
+export function SpeakerMap({ snapshot }: { snapshot: Snapshot }) {
+  const { speechLabels, connectionId, ownerSpeakerLabel, bindings } = snapshot.session;
+  if (!connectionId || speechLabels.length === 0) return null;
+  const valueFor = (label: string) =>
+    label === ownerSpeakerLabel ? "__owner" : bindings[`${connectionId}|${label}`] ?? "";
+  const change = (label: string, value: string) => {
+    if (value === "__owner") return post("/api/owner/speaker", { speakerLabel: label });
+    const unOwner = label === ownerSpeakerLabel ? post("/api/owner/speaker", { speakerLabel: null }) : Promise.resolve();
+    return unOwner.then(() => post("/api/identity/confirm", { connectionId, speakerLabel: label, personId: value || null }));
+  };
+  return (
+    <section className="panel">
+      <h2>Voices this session</h2>
+      <ul className="people">
+        {speechLabels.map((label) => (
+          <li key={label} className="person-controls">
+            <span>{label}</span>
+            <select value={valueFor(label)} onChange={(e) => void change(label, e.target.value)}>
+              <option value="">unknown</option>
+              <option value="__owner">{snapshot.ownerName} (owner)</option>
+              {snapshot.people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </li>
+        ))}
+      </ul>
+      <p className="muted small-print">Labels come from live diarization and reset when the mic reconnects.</p>
+    </section>
   );
 }

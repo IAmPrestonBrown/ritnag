@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { DecisionSummary, ImpState, ServerEvent, Snapshot } from "../shared/events";
 import { connectEvents, hasToken, post } from "./api";
 import { Player } from "./audio/playback";
+import { MicCapture } from "./audio/capture";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
-import { DebugDrawer, SessionControls } from "./components/SessionControls";
+import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap } from "./components/SessionControls";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -18,6 +19,25 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
   const player = useRef<Player | null>(null);
+  const mic = useRef(new MicCapture());
+  const conn = useRef<ReturnType<typeof connectEvents> | null>(null);
+  const [micOn, setMicOn] = useState(false);
+
+  const stopMic = () => {
+    mic.current.stop(conn.current?.socket() ?? null);
+    setMicOn(false);
+  };
+  const toggleMic = async () => {
+    if (mic.current.active) return stopMic();
+    const socket = conn.current?.socket();
+    if (!socket || socket.readyState !== WebSocket.OPEN) return setError("Not connected to the imp server.");
+    try {
+      await mic.current.start(socket); // the click also unlocks audio playback
+      setMicOn(true);
+    } catch (err) {
+      setError(`Microphone: ${(err as Error).message}`);
+    }
+  };
 
   player.current ??= new Player((isSpeaking, text) => {
     setSpeaking(isSpeaking);
@@ -26,7 +46,7 @@ export function App() {
 
   useEffect(() => {
     if (!hasToken) return;
-    const conn = connectEvents((e: ServerEvent) => {
+    const c = connectEvents((e: ServerEvent) => {
       if ("generation" in e && e.generation < generation.current) return; // stale
       switch (e.type) {
         case "snapshot":
@@ -53,10 +73,16 @@ export function App() {
           break;
         case "error":
           setError(e.message);
+          // the server ended the transcription stream; release the mic too
+          if (/deepgram|transcription/i.test(e.message)) stopMic();
           break;
       }
-    }, setConnected);
-    return conn.close;
+    }, (open) => {
+      setConnected(open);
+      if (!open) stopMic(); // server closes the relay when the socket drops
+    });
+    conn.current = c;
+    return c.close;
   }, []);
 
   // Mouth flaps only while audio is actually playing.
@@ -86,7 +112,7 @@ export function App() {
         <strong>Imp</strong>
         <span className={`pill ${connected ? "ok" : "bad"}`}>{connected ? "connected" : "reconnecting…"}</span>
         <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
-          mic {snapshot.session.listening ? "LIVE" : "off · typed input only"}
+          mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
         </span>
         <span className="pill">memory: local JSON</span>
         <span className={`pill ${!idx.configured ? "bad" : idx.lastError ? "bad" : idx.ready ? "ok" : ""}`}>
@@ -99,6 +125,7 @@ export function App() {
         )}
       </header>
       {idx.lastError && <div className="banner warn">Moss: {idx.lastError}. Local memory is intact; rebuild the index to resync.</div>}
+      <CalibrationBar snapshot={snapshot} />
       {error && (
         <div className="banner err">
           {error} <button className="small" onClick={() => setError(null)}>Dismiss</button>
@@ -118,11 +145,17 @@ export function App() {
               {lastDecision.note && ` · ${lastDecision.note}`}
             </p>
           )}
-          <SessionControls snapshot={snapshot} onStopSpeaking={() => player.current?.stop()} />
+          <SessionControls
+            snapshot={snapshot}
+            onStopSpeaking={() => player.current?.stop()}
+            micOn={micOn}
+            onToggleMic={() => void toggleMic()}
+          />
           <AlertsPanel snapshot={snapshot} />
         </section>
         <div className="side">
           <MemoryPanel snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} />
+          <SpeakerMap snapshot={snapshot} />
           <PeoplePanel snapshot={snapshot} />
           <TranscriptPanel snapshot={snapshot} partial={partial} />
         </div>

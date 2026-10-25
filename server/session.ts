@@ -56,6 +56,9 @@ export class Session {
   listening = false;
   speechConnectionId: string | null = null;
   ownerSpeakerLabel: string | null = null;
+  /** Owner calibration: the next speech turn proposes a label; the owner confirms it in the UI. */
+  calibrating = false;
+  calibrationCandidate: string | null = null;
 
   // `${connectionId}|${speakerLabel}` -> personId. Never persisted.
   private bindings = new Map<string, string>();
@@ -86,13 +89,24 @@ export class Session {
     for (const key of [...this.pendingUnknown.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.pendingUnknown.delete(key);
     this.speechConnectionId = connectionId;
     this.ownerSpeakerLabel = null;
+    this.calibrating = connectionId !== null; // every new connection starts by finding the owner
+    this.calibrationCandidate = null;
     this.listening = connectionId !== null;
     this.setState(this.listening ? "listening" : "idle", null);
     void this.broadcast();
   }
 
+  startCalibration() {
+    this.calibrating = true;
+    this.calibrationCandidate = null;
+    void this.broadcast();
+  }
+
   setOwnerSpeaker(label: string | null) {
     this.ownerSpeakerLabel = label;
+    this.calibrating = false;
+    this.calibrationCandidate = null;
+    if (label) this.bindings.delete(key(this.speechConnectionId ?? "", label));
     if (label && this.speechConnectionId) this.pendingUnknown.delete(key(this.speechConnectionId, label));
     void this.broadcast();
   }
@@ -174,6 +188,12 @@ export class Session {
 
     const generation = this.generation;
     this.opts.emit({ type: "transcript.final", utterance, generation });
+    if (turn.source === "speech" && this.calibrating && !isOwner) {
+      // Calibration phrase: propose this speaker as the owner; never learn or answer from it.
+      this.calibrationCandidate = turn.speakerLabel;
+      await this.broadcast();
+      return utterance;
+    }
     void this.broadcast();
     this.queue = this.queue.then(() => this.process(utterance, generation)).catch((err) => this.fail(err));
     return utterance;
@@ -446,6 +466,9 @@ export class Session {
     }
     const bindings: Record<string, string> = {};
     for (const [k, v] of this.bindings) bindings[k] = v;
+    const speechLabels = [
+      ...new Set(transcript.filter((u) => u.connectionId === this.speechConnectionId).map((u) => u.speakerLabel)),
+    ].sort();
     return {
       storage: this.store.kind,
       index: this.index.getStatus(),
@@ -459,6 +482,8 @@ export class Session {
         ownerSpeakerLabel: this.ownerSpeakerLabel,
         bindings,
         pendingUnknownSpeaker: this.singlePendingUnknown()?.speakerLabel ?? null,
+        calibration: { active: this.calibrating, candidate: this.calibrationCandidate },
+        speechLabels,
       },
       people,
       memories,

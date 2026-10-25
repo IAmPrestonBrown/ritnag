@@ -11,12 +11,15 @@ import { SYSTEM_PROMPT, buildUserMessage, type Decider } from "./decision";
 import { claudeDecide, anthropicModel } from "./providers/claude";
 import { synthesize, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
+import { deepgramConfigured } from "./providers/deepgram";
+import { AudioRelay } from "./audioRelay";
 import { loadWorkspaceToken, tokenMatches } from "./auth";
 import type { Health, ServerEvent } from "../shared/events";
 import {
   AckRequest,
   FocusRequest,
   IdentityConfirmRequest,
+  OwnerSpeakerRequest,
   PersonUpdateRequest,
   PlaybackRequest,
   SpeechRequest,
@@ -58,7 +61,7 @@ const health = (): Health => ({
   storage: store.kind,
   providers: {
     anthropic: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
-    deepgram: Boolean(process.env.DEEPGRAM_API_KEY),
+    deepgram: deepgramConfigured(),
     cartesia: cartesiaConfigured(),
     moss: index.getStatus().configured,
   },
@@ -158,7 +161,20 @@ app.post("/api/alerts/acknowledge", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/owner/calibrate", (_req, res) => {
+  session.startCalibration();
+  res.json({ ok: true });
+});
+
+app.post("/api/owner/speaker", async (req, res) => {
+  const b = body(OwnerSpeakerRequest, req, res);
+  if (!b) return;
+  session.setOwnerSpeaker(b.speakerLabel);
+  res.json({ ok: true });
+});
+
 app.post("/api/session/stop", async (_req, res) => {
+  relay?.stop();
   session.setSpeechConnection(null);
   await session.reset({ wipe: false });
   res.json({ ok: true });
@@ -197,7 +213,10 @@ app.post("/api/playback", (req, res) => {
 
 const server = createServer(app);
 
-// Event channel now; microphone audio frames join it in slice 2.
+// One live mic at a time; a new Start replaces the old stream (and its speaker labels).
+let relay: AudioRelay | null = null;
+
+// Events go out as JSON text; the browser sends JSON control messages and binary WebM/Opus audio.
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", "http://localhost");
@@ -208,7 +227,32 @@ server.on("upgrade", (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.on("close", () => clients.delete(ws));
+    let mine: AudioRelay | null = null;
+    ws.on("message", (data, isBinary) => {
+      if (isBinary) return void mine?.audio(data as Buffer);
+      let msg: { type?: string };
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (msg.type === "mic.start") {
+        if (!deepgramConfigured()) {
+          return void ws.send(JSON.stringify({ type: "error", message: "Deepgram not configured (DEEPGRAM_API_KEY).", recoverable: true } satisfies ServerEvent));
+        }
+        relay?.stop();
+        mine = relay = new AudioRelay(session, emit, (ended) => {
+          if (relay === ended) relay = null;
+          if (mine === ended) mine = null;
+        });
+      } else if (msg.type === "mic.stop") {
+        mine?.stop();
+      }
+    });
+    ws.on("close", () => {
+      clients.delete(ws);
+      mine?.stop(); // a closed tab must not leave the mic stream "live"
+    });
     void session.snapshot().then((snapshot) => ws.send(JSON.stringify({ type: "snapshot", snapshot } satisfies ServerEvent)));
   });
 });

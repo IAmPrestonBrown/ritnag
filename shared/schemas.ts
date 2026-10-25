@@ -145,6 +145,7 @@ export const TeachRequest = z.object({
   factualAnswer: z.string().min(1),
 });
 
+export const OwnerSpeakerRequest = z.object({ speakerLabel: z.string().nullable() });
 export const FocusRequest = z.object({ focusMode: z.boolean() });
 export const AckRequest = z.object({ alertId: z.string() });
 export const SpeechRequest = z.object({ responseId: z.string() });

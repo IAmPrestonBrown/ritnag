@@ -165,6 +165,19 @@ describe("session pipeline", () => {
     expect(session.personFor("dg-2", "0")).toBeNull();
   });
 
+  it("calibration proposes the owner without learning from the phrase, then routes owner turns", async () => {
+    const { session, say, calls } = setup(scripted);
+    session.setSpeechConnection("dg-1");
+    expect(session.calibrating).toBe(true);
+    await say("spk0", "Hey imp, it's Preston.", { source: "speech", connectionId: "dg-1", providerEventId: "c1", asOwner: false });
+    expect(session.calibrationCandidate).toBe("spk0");
+    expect(calls).toHaveLength(0);
+    session.setOwnerSpeaker("spk0");
+    await say("spk1", "Did you push the frontend PR?", { source: "speech", connectionId: "dg-1", providerEventId: "q1", asOwner: false });
+    await say("spk0", "Yes, it's pushed.", { source: "speech", connectionId: "dg-1", providerEventId: "a1", asOwner: false });
+    expect(calls.map((c) => c.role)).toEqual(["visitor", "owner"]);
+  });
+
   it("an answer citing a memory that wasn't retrieved escalates instead of inventing", async () => {
     const { say, store, spoken } = setup(() => ({ action: "ANSWER", isQuestion: true, isImportant: true, memoryIds: ["m_fake"], spokenText: "Sure, approved." }));
     await say("guest-A", "Can you approve the production rollback?");
