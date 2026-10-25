@@ -11,6 +11,12 @@ export const TYPED_CONNECTION = "typed";
 const RECENT_TURNS = 20;
 const SEARCH_TOP_K = 8;
 const FALLBACK_MEMORIES = 50;
+/**
+ * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
+ * and every reply lands later than the last. A visitor turn that has already waited this long is
+ * skipped: a late answer to an old question is worse than none. Owner turns are never skipped.
+ */
+const MAX_QUEUE_WAIT_MS = 4000;
 
 /** Searchable index over memories (Moss in production). Never authoritative. */
 export interface MemoryIndex {
@@ -262,7 +268,8 @@ export class Session {
       return utterance;
     }
     void this.broadcast();
-    this.queue = this.queue.then(() => this.process(utterance, generation)).catch((err) => this.fail(err));
+    const enqueuedAt = this.now();
+    this.queue = this.queue.then(() => this.process(utterance, generation, enqueuedAt)).catch((err) => this.fail(err));
     return utterance;
   }
 
@@ -271,15 +278,21 @@ export class Session {
     return this.queue;
   }
 
-  private async process(utterance: Utterance, generation: number) {
+  private async process(utterance: Utterance, generation: number, enqueuedAt = this.now()) {
     if (generation !== this.generation) return;
+    const waited = this.now() - enqueuedAt;
+    if (!(utterance.isOwner && utterance.ownerCertain) && waited > MAX_QUEUE_WAIT_MS) {
+      console.log(`[imp] skipped stale turn after ${(waited / 1000).toFixed(1)} s in queue: "${utterance.text.slice(0, 60)}"`);
+      return;
+    }
     // Filler never reaches Claude: each call is ~1-3 s and turns are single-file, so chatter
     // would otherwise delay the next real question.
     if (!needsDecision(utterance, this.pendingQuestion !== null)) {
       console.log(`[imp] skipped filler (${utterance.isOwner ? "owner" : "visitor"}): "${utterance.text.slice(0, 60)}"`);
       return;
     }
-    const started = this.now();
+    // Latency counts from arrival, so time spent waiting behind other turns shows on screen.
+    const started = enqueuedAt;
     this.setState("thinking", null);
 
     // An owner turn we can't confirm (borderline voice, or a short turn carried by the label) takes the
