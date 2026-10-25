@@ -73,7 +73,8 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         return alertOr(d.alertReason?.trim() || "Needs the owner", d.spokenText);
       case "WAIT": {
         // Comebacks: banter aimed at the imp, or insults at the owner, get a short reply in any mode.
-        const comeback = d.banter ? clip(d.spokenText) : null;
+        // Off by default: the imp only speaks up for questions. BANTER=on brings comebacks back.
+        const comeback = d.banter && process.env.BANTER === "on" ? clip(d.spokenText) : null;
         if (comeback) return { kind: "wait", spokenText: comeback, isQuestion: d.isQuestion, banter: true };
         // deflections ("ask Preston") are a focus-mode behavior; otherwise the owner is right there
         // ...and only for an actual question: other remarks get no reply at all

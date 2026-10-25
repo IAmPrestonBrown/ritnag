@@ -14,6 +14,8 @@
 4. **Start listening**, then toggle **Focus** on and off once. The first click asks Chrome for notification permission; answer it now, not on stage. Allow or Block; the alert chime works either way.
 5. Stop and start listening once more so the session starts clean, and you're ready.
 
+**Timing:** the imp stays quiet for 8 s after the owner speaks (it assumes you're in the conversation; `OWNER_ENGAGED_MS`). It only speaks up for questions; banter gets no reply (`BANTER=on` to change). So after the owner says something, Bob waits a beat (about 8 s) before asking. Each spoken answer is preceded by a short in-tone reaction ("Ugh.", "Again?").
+
 Recovery during the demo: if a voice is mislabeled, use the **Who just spoke?** buttons under the imp, or **that was me / not me** on the line in the **Transcript** tab. Say out loud that it's a manual correction. Typed input is in ⚙ Settings.
 
 Verified end to end in demo mode (typed input, real Claude, Moss and Cartesia): question → learn → "That was Bob" → sarcastic recall with the memory cited → a second person gets a friendly answer → a priority person's rollback request escalates in focus mode.

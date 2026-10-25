@@ -302,7 +302,41 @@ describe("session pipeline", () => {
     expect(spoken()).toHaveLength(1);
   });
 
-  it("claps back at banter aimed at the imp or the owner, in any mode, at most once per 15 s per person", async () => {
+  it("banter gets no reply by default: the imp only speaks up for questions", async () => {
+    const { say, spoken } = setup(() => ({ action: "WAIT", banter: "at_imp", spokenText: "Useless? I remember more than you do." }));
+    await say("guest-A", "Ritnag, you're useless.");
+    expect(spoken()).toHaveLength(0);
+  });
+
+  it("stays silent while the owner is in the conversation, but still learns the owner's answer", async () => {
+    let clock = 1_000_000;
+    const { session, store, spoken } = setup(scripted, { now: () => clock });
+    await session.addMemory(
+      { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: clock, validUntil: null },
+      null,
+    );
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    const sp = (label: string, text: string, id: string) =>
+      session.ingest({ text, speakerLabel: label, connectionId: "dg-1", providerEventId: id, source: "speech", asOwner: false });
+    await sp("spk0", "So anyway, I was thinking we ship tomorrow morning.", "o1");
+    await session.idle();
+    clock += 3000;
+    await sp("spk1", "Is the frontend up yet?", "q1"); // owner spoke 3 s ago: imp keeps out of it
+    await session.idle();
+    expect(spoken()).toHaveLength(0);
+    clock += 2000;
+    await sp("spk0", "Yeah, it's up and waiting for review.", "a1"); // the owner answers; that gets learned
+    await session.idle();
+    expect((await store.listAllMemories()).length).toBe(2);
+    clock += 20_000; // owner heads-down again
+    await sp("spk1", "Wait, is the frontend up?", "q2");
+    await session.idle();
+    expect(spoken().length).toBe(1);
+  });
+
+  it("claps back at banter aimed at the imp or the owner when BANTER=on, at most once per 15 s per person", async () => {
+    process.env.BANTER = "on";
     const { say, spoken } = setup((ctx) =>
       ctx.utterance.text.includes("useless")
         ? { action: "WAIT", banter: "at_imp", spokenText: "Useless? I remember more than you do." }
@@ -315,6 +349,7 @@ describe("session pipeline", () => {
     await say("guest-A", "Seriously, you're useless."); // within 15 s
     await say("guest-B", "Why did the scarecrow win an award");
     expect(spoken()).toHaveLength(1);
+    delete process.env.BANTER;
   });
 
   it("plays an instant reaction for a guest's spoken question before the answer, never for the owner", async () => {
@@ -574,7 +609,7 @@ describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
     expect(calls.length).toBe(before);
   });
 
-  it("a guest's short question on the owner's sticky label is still answered, neutrally, and teaches nothing", async () => {
+  it("a guest's short question on the owner's sticky label takes the visitor path and teaches nothing", async () => {
     const { say, store, session, calls, spoken } = voiceSetup();
     await session.addMemory(
       { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
@@ -586,7 +621,8 @@ describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
     const q = await say("spk0", "Frontend up?", speech(null, 0.6));
     expect(q).toMatchObject({ isOwner: true, ownerCertain: false, ownerBasis: "stickiness" });
     expect(calls.at(-1)).toMatchObject({ role: "visitor", identityCertain: false });
-    expect(spoken().at(-1)).toBe("Yes. Pushed.");
+    // the owner was just talking, so the imp answers nothing aloud (it stays out of conversations)
+    expect(spoken()).toHaveLength(0);
     expect(await store.listAllMemories()).toHaveLength(1);
     // the owner's label is never offered for "That was Bob…" binding
     expect((await session.snapshot()).session.pendingUnknownSpeaker).toBeNull();

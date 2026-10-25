@@ -14,6 +14,8 @@ const SEARCH_TOP_K = 8;
 const CONTINUATION_MS = 2500;
 /** Optional "ask the owner" deflections: at most one per person in this window. */
 const DEFLECT_COOLDOWN_MS = 30_000;
+/** After the owner speaks, the imp stays silent this long: they're in the conversation. */
+const OWNER_ENGAGED_MS = Number(process.env.OWNER_ENGAGED_MS || 8_000);
 /** Moss score at which a stored memory probably answers the question (so a reaction will be followed by one). */
 const REACT_MIN_SCORE = 0.2;
 /** Comebacks to banter: at most one per person in this window. */
@@ -129,6 +131,7 @@ export class Session {
   // latest visitor turn per speaker, so a fragment that the speaker immediately continued is dropped
   private latestVisitorTurn = new Map<string, Utterance>();
   private lastDeflection = new Map<string, number>();
+  private lastOwnerSpokeAt = -Infinity;
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
   /** Set only between the browser's "playback started" and "ended": the imp's voice is in the room. */
@@ -221,6 +224,7 @@ export class Session {
     this.pendingQuestion = null;
     this.pendingUnknown.clear();
     this.suggestions.clear();
+    this.lastOwnerSpokeAt = -Infinity;
     if (opts.wipe) {
       this.bindings.clear();
       this.id = randomUUID();
@@ -286,6 +290,7 @@ export class Session {
       source: turn.source,
     });
     if (!utterance) return null; // replayed provider event
+    if (turn.source === "speech" && utterance.isOwner && utterance.ownerCertain) this.lastOwnerSpokeAt = this.now();
     if (owner.basis === "voice" && owner.ownerCertain && turn.connectionId === this.speechConnectionId) {
       this.verifiedOwnerLabels = [...this.verifiedOwnerLabels, turn.speakerLabel].slice(-5);
     }
@@ -393,7 +398,7 @@ export class Session {
     }
     await this.noteSelfIdentification(utterance, decision.speakerCheck.selfIdentifiedAs, people);
 
-    const effect = validateDecision(suspect ? { ...decision, action: "WAIT", spokenText: null } : decision, {
+    const validated = validateDecision(suspect ? { ...decision, action: "WAIT", spokenText: null } : decision, {
       role,
       ownerCertain: utterance.isOwner && utterance.ownerCertain,
       utteranceId: utterance.id,
@@ -404,7 +409,13 @@ export class Session {
       focusMode: this.focusMode,
       now: this.now(),
     });
-    const line = await this.apply(effect, utterance, generation, ctx.pendingQuestion);
+    // The owner is in the conversation: stay out of it. A question goes unanswered aloud (the owner
+    // is right there, and their reply gets learned as the answer); an alert is raised on screen only.
+    const quiet = role === "visitor" && this.ownerEngaged();
+    const effect: Effect = quiet && validated.kind === "answer" ? { kind: "wait", spokenText: null, isQuestion: true } : validated;
+    if (quiet && validated.kind !== "wait") console.log(`[imp] staying quiet: the owner is in the conversation`);
+    const applied = await this.apply(effect, utterance, generation, ctx.pendingQuestion);
+    const line = quiet ? null : applied;
     if (generation !== this.generation) return;
     // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
     const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
@@ -660,8 +671,13 @@ export class Session {
    * The moment a guest finishes a question, play a short pre-made noise in their tone ("Ugh.",
    * "Oh, here we go.") so there's no dead air while the answer is decided. Not over other speech.
    */
+  /** The owner spoke recently (live mic): they're in the conversation, so the imp keeps quiet. */
+  ownerEngaged() {
+    return this.now() - this.lastOwnerSpokeAt < OWNER_ENGAGED_MS;
+  }
+
   private reactInstantly(u: Utterance, role: "owner" | "visitor", speaker: Person | null, generation: number, topScore: number | null) {
-    if (role !== "visitor" || !this.opts.react || u.source !== "speech" || this.isSpeaking()) return;
+    if (role !== "visitor" || !this.opts.react || u.source !== "speech" || this.isSpeaking() || this.ownerEngaged()) return;
     if (!looksLikeQuestion(u.text) && !REQUEST.test(u.text)) return;
     // Only when an answer (or an escalation) is likely: "Hmm." followed by silence is worse than nothing.
     const likelyAnswer = topScore !== null && topScore >= REACT_MIN_SCORE;
