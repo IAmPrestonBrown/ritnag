@@ -15,7 +15,12 @@ export class Player {
     try {
       blob = await fetchSpeech(responseId);
     } catch (err) {
-      if (this.current === responseId) this.current = null;
+      // Tell the server no audio is coming (a network failure never reaches its TTS-error path),
+      // so the imp and the mic gate leave "thinking". A repeat "ended" is a no-op there.
+      if (this.current === responseId) {
+        this.current = null;
+        void post("/api/playback", { responseId, phase: "ended" });
+      }
       throw err;
     }
     if (this.current !== responseId) return; // superseded or stopped while synthesizing

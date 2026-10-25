@@ -12,6 +12,9 @@ const DELIVERY: Record<Tone, { emotion?: string; speed: number; volume?: number 
   savage: { emotion: "outraged", speed: 1.1, volume: 1.3 },
 };
 
+/** A hung request would otherwise leave the imp "thinking" forever; a timeout fails into the normal TTS-error path. */
+const CARTESIA_TIMEOUT_MS = 10_000;
+
 export const cartesiaConfigured = () => Boolean(process.env.CARTESIA_API_KEY && process.env.CARTESIA_VOICE_ID);
 
 /** One short, complete MP3 clip. Streaming can come later once playback is reliable. */
@@ -19,6 +22,7 @@ export async function synthesize(text: string, tone: Tone = "neutral"): Promise<
   const delivery = DELIVERY[tone];
   const res = await fetch("https://api.cartesia.ai/tts/bytes", {
     method: "POST",
+    signal: AbortSignal.timeout(CARTESIA_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${process.env.CARTESIA_API_KEY}`,
       "Cartesia-Version": CARTESIA_VERSION,

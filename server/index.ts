@@ -255,7 +255,10 @@ app.post("/api/speech", async (req, res) => {
   if (!b) return;
   const speech = session.speechFor(b.responseId);
   if (!speech) return void res.status(410).json({ error: "stale or unknown response" });
-  if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
+  if (!cartesiaConfigured()) {
+    session.playback(b.responseId, "ended"); // no audio is coming; leave the thinking state
+    return void res.status(503).json({ error: "Cartesia not configured" });
+  }
   try {
     startSynthesis(b.responseId, speech.text, speech.tone);
     const { audio, contentType } = await clips.get(b.responseId)!;
