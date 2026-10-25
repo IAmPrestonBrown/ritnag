@@ -47,7 +47,9 @@ input { flex: 1; min-width: 0; }
 
 .stage { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .caption { font-size: 26px; font-weight: 600; text-align: center; min-height: 2.6em; max-width: 30ch; margin: 0; }
-.decision { font-size: 13px; text-align: center; margin: 0; }
+.decision { font: 600 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.decision-action { color: var(--accent); letter-spacing: 0.04em; }
+.caption--thinking { color: var(--muted); font-style: italic; animation: pulse 1s ease-in-out infinite; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
@@ -130,6 +132,13 @@ input { flex: 1; min-width: 0; }
 
 .imp--listening .imp-body { animation: lean 1.6s ease-in-out infinite; }
 .imp--listening .imp-brow { transform: translateY(-4px); transition: transform 0.2s; }
+.imp--thinking .imp-body { animation: hop 0.6s ease-in-out infinite; }
+.imp--thinking .imp-pupils { animation: dart 0.7s steps(1) infinite; }
+.imp--thinking .imp-tail { animation: wag 0.45s ease-in-out infinite; }
+.imp--thinking .imp-brow--l { transform: translateY(3px) rotate(6deg); transform-box: fill-box; transform-origin: center; transition: transform 0.2s; }
+.imp--thinking svg { animation: glow 1.2s ease-in-out infinite; }
+.imp { position: relative; }
+.imp--thinking::after { content: "• • •"; position: absolute; top: -4%; right: 2%; font-size: clamp(22px, 4vw, 44px); font-weight: 800; color: var(--accent); animation: pulse 0.9s ease-in-out infinite; }
 .imp--thinking .imp-body { animation: hop 0.35s ease-in-out infinite; }
 .imp--thinking .imp-pupils { animation: dart 0.6s steps(1) infinite; }
 .imp--thinking svg { animation: glow 1.2s ease-in-out infinite; }
@@ -147,7 +156,9 @@ input { flex: 1; min-width: 0; }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
 @keyframes dart { 0% { transform: translateX(-5px); } 50% { transform: translateX(5px) translateY(-3px); } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px) rotate(-3deg); } 75% { transform: translateX(8px) rotate(3deg); } }
-@media (prefers-reduced-motion: reduce) { .imp * { animation: none !important; } }
+@keyframes glow { 0%, 100% { filter: drop-shadow(0 0 6px var(--accent)); } 50% { filter: drop-shadow(0 0 26px var(--accent)); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .imp *, .imp::after, .caption--thinking { animation: none !important; } }
 
 /* ---------- demo / projector mode ---------- */
 .demo { max-width: none; padding: 12px 28px 28px; font-size: 18px; }
@@ -172,3 +183,4 @@ input { flex: 1; min-width: 0; }
 .demo .person-head strong { font-size: 19px; }
 .demo .tone-note:placeholder-shown { display: none; } /* empty notes are clutter on a projector; filled ones stay */
 @media (max-width: 1100px) { .demo .layout { grid-template-columns: 1fr; } .demo .imp { width: min(360px, 70vw); } }
+.demo .decision { font-size: clamp(16px, 1.4vw, 22px); }
