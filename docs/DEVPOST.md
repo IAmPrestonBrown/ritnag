@@ -54,7 +54,7 @@ Local JSON is the source of truth (`server/memory.ts`). Moss is a search index o
 
 ## Accomplishments that we're proud of
 
-- An answer can't contain a fact the owner never said, and that's enforced in code, not just requested in the prompt.
+- Every answer has to cite a memory the owner actually taught and Moss actually retrieved. That's enforced in code (`server/executor.ts`), not just requested in the prompt.
 - The tone system is fun to watch, and it still never roasts anyone it isn't sure it has identified.
 - It runs locally: provider keys stay on the server, the UI needs a workspace token, and memory is a JSON file you can read.
 
