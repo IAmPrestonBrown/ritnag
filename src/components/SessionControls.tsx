@@ -5,38 +5,56 @@ import { primeAlerts } from "../notify";
 
 const TYPED_SPEAKERS = ["owner", "guest-A", "guest-B", "guest-C"];
 
-export function SessionControls({
+/** The only buttons on the main screen: listen, focus, and (while it talks) stop the imp. */
+export function PrimaryControls({
   snapshot,
-  onStopSpeaking,
   micOn,
+  speaking,
   onToggleMic,
+  onStopSpeaking,
 }: {
   snapshot: Snapshot;
-  onStopSpeaking: () => void;
   micOn: boolean;
+  speaking: boolean;
   onToggleMic: () => void;
+  onStopSpeaking: () => void;
 }) {
-  const [confirmReset, setConfirmReset] = useState(false);
+  const focus = snapshot.session.focusMode;
   return (
     <div className="controls">
-      <button className={micOn ? "on" : ""} onClick={onToggleMic}>
+      <button className={`primary ${micOn ? "live" : ""}`} onClick={onToggleMic}>
+        <span className="dot" aria-hidden="true" />
         {micOn ? "Stop listening" : "Start listening"}
       </button>
+      <button
+        className={`ghost ${focus ? "on" : ""}`}
+        title="Focus mode: the imp deflects ordinary questions and only interrupts you for important ones"
+        onClick={() => {
+          // focus mode is when alerts matter most; ask for notifications from this click
+          if (!focus) primeAlerts();
+          void post("/api/focus", { focusMode: !focus });
+        }}
+      >
+        Focus {focus ? "on" : "off"}
+      </button>
+      {speaking && (
+        <button className="ghost" onClick={onStopSpeaking}>
+          Stop talking
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Rarely needed session tools; they live in Settings. */
+export function AdvancedControls({ snapshot }: { snapshot: Snapshot }) {
+  const [confirmReset, setConfirmReset] = useState(false);
+  return (
+    <div className="row">
+      <button onClick={() => void post("/api/speech/test")}>Test voice</button>
       {snapshot.session.listening && !snapshot.session.voice.active && (
         <button onClick={() => post("/api/owner/calibrate")}>Recalibrate owner</button>
       )}
-      <button
-        className={snapshot.session.focusMode ? "on" : ""}
-        onClick={() => {
-          // focus mode is when alerts matter most; ask for notifications from this click
-          if (!snapshot.session.focusMode) primeAlerts();
-          void post("/api/focus", { focusMode: !snapshot.session.focusMode });
-        }}
-      >
-        Focus mode: {snapshot.session.focusMode ? "on" : "off"}
-      </button>
-      <button onClick={onStopSpeaking}>Stop speaking</button>
-      <button onClick={() => void post("/api/speech/test")}>Test voice</button>
       {confirmReset ? (
         <>
           <button className="danger" onClick={() => post("/api/session/reset", { everything: true }).then(() => setConfirmReset(false))}>
@@ -46,7 +64,7 @@ export function SessionControls({
           <button onClick={() => setConfirmReset(false)}>Cancel</button>
         </>
       ) : (
-        <button onClick={() => setConfirmReset(true)}>Reset demo</button>
+        <button onClick={() => setConfirmReset(true)}>Reset demo…</button>
       )}
     </div>
   );
@@ -71,7 +89,7 @@ export function DebugDrawer({ snapshot }: { snapshot: Snapshot }) {
   const bound = (label: string) => snapshot.session.bindings[`typed|${label}`] ?? "";
 
   return (
-    <details className="panel debug" open>
+    <details className="panel debug">
       <summary>Typed input &amp; manual controls</summary>
       <div className="row">
         <select value={speaker} onChange={(e) => setSpeaker(e.target.value)}>

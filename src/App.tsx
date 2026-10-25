@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { DecisionSummary, ImpState, ServerEvent, Snapshot } from "../shared/events";
-import { connectEvents, hasToken, post } from "./api";
+import { connectEvents, hasToken } from "./api";
 import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
-import { MicPicker } from "./components/MicPicker";
-import { SpeakerPicker } from "./components/SpeakerPicker";
-import { RecordClips } from "./components/RecordClips";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { useThinkingCaption } from "./components/thinking";
-import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
-import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
-import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
+import { AlertsPanel } from "./components/Panels";
+import { CalibrationBar, PrimaryControls, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
+import { SettingsDrawer } from "./components/SettingsDrawer";
+import { SideTabs } from "./components/SideTabs";
+import { VoiceOnboarding } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
 import { notifyAlert, primeAlerts } from "./notify";
 import type { Person } from "../shared/schemas";
@@ -40,6 +39,7 @@ export function App() {
   const [micOn, setMicOn] = useState(false);
   const [micLabel, setMicLabel] = useState("");
   const [onboarding, setOnboarding] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [demo, setDemo] = useState(() => {
     if (new URLSearchParams(location.search).has("demo")) return true;
     try {
@@ -172,92 +172,93 @@ export function App() {
             ? "Updated who's who"
             : null;
   const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
-  const idx = snapshot.index;
+  const listening = snapshot.session.listening;
+  const needsAttention = !connected || Boolean(snapshot.index.lastError);
+  const statusText = !connected ? "Reconnecting…" : listening ? "Listening" : micOn ? "Connecting…" : "Not listening";
 
   return (
     <main className={`app ${openAlerts ? "has-alert" : ""} ${demo ? "demo" : ""}`}>
-      {demo ? (
-        <header className="status">
-          <strong>Ritnag</strong>
-          <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>{snapshot.session.listening ? "● listening" : "mic off"}</span>
-          {snapshot.session.focusMode && <span className="pill ok">focus mode</span>}
-          <button className="small exit-demo" onClick={() => setDemo(false)} title="Exit demo mode (D)">
-            ×
-          </button>
-        </header>
-      ) : (
-      <header className="status">
-        <strong>Ritnag</strong>
-        <button className="small" onClick={() => setDemo(true)} title="Projector view (D)">
-          Demo mode
-        </button>
-        <span className={`pill ${connected ? "ok" : "bad"}`}>{connected ? "connected" : "reconnecting…"}</span>
-        <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
-          mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
-        </span>
-        <MicPicker live={micOn} inUse={micLabel} />
-        <SpeakerPicker />
-        {micOn && micLabel && /iphone|ipad/i.test(micLabel) && <span className="pill bad">using {micLabel}</span>}
-        <span className="pill">memory: local JSON</span>
-        <span className={`pill ${!idx.configured ? "bad" : idx.lastError ? "bad" : idx.ready ? "ok" : ""}`}>
-          Moss {!idx.configured ? "not configured" : idx.ready ? `${idx.docCount} docs${idx.pushPending ? " · syncing" : ""}` : "not ready"}
-        </span>
-        {idx.configured && (
-          <button className="small" onClick={() => post("/api/index/rebuild").catch((e: Error) => setError(e.message))}>
-            Rebuild index
-          </button>
-        )}
-        <span className={`pill ${voice.active ? "ok" : voice.enrolled ? "" : "bad"}`}>
-          owner voice {voice.active ? "verifying" : voice.enrolled ? "loading…" : "not enrolled"}
-        </span>
-        {!voice.enrolled && (
-          <button className="small" onClick={openOnboarding}>
-            Enroll voice
-          </button>
-        )}
-      </header>
-      )}
-      {idx.lastError && !demo && <div className="banner warn">Moss: {idx.lastError}. Local memory is intact; rebuild the index to resync.</div>}
-      <CalibrationBar snapshot={snapshot} />
-      <SuggestionBar snapshot={snapshot} />
-      {error && (
-        <div className="banner err">
-          {error} <button className="small" onClick={() => setError(null)}>Dismiss</button>
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          Ritnag
         </div>
-      )}
+        <span className={`status-chip ${listening ? "live" : ""} ${!connected ? "bad" : ""}`}>
+          <span className="dot" aria-hidden="true" />
+          {statusText}
+        </span>
+        {snapshot.session.focusMode && <span className="status-chip focus">Focus</span>}
+        <div className="topbar-end">
+          {!voice.enrolled && !demo && (
+            <button className="link" onClick={openOnboarding}>
+              Enroll your voice
+            </button>
+          )}
+          <button
+            className={`icon ${needsAttention ? "attention" : ""}`}
+            onClick={() => setSettings(true)}
+            aria-label="Settings"
+            title={needsAttention ? "Settings (something needs attention)" : "Settings"}
+          >
+            ⚙
+          </button>
+        </div>
+      </header>
+
+      <div className="banners">
+        <CalibrationBar snapshot={snapshot} />
+        <SuggestionBar snapshot={snapshot} />
+        {micOn && /iphone|ipad/i.test(micLabel) && (
+          <div className="banner warn">Listening through {micLabel}. Pick the laptop mic in Settings.</div>
+        )}
+        {error && (
+          <div className="banner err">
+            <span>{error}</span>
+            <button className="icon small" onClick={() => setError(null)} aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="layout">
         <section className="stage">
+          <AlertsPanel snapshot={snapshot} />
           <ImpAvatar state={shownState} mouthOpen={mouthOpen} />
           <p className={`caption${thinkingCaption ? " thinking" : ""}`} aria-live="polite">
             {thinkingCaption ?? caption ?? "Waiting for an interruption."}
           </p>
-          {demo && receipt && !thinkingCaption && <p className="receipt">{receipt}</p>}
-          {lastDecision && !(demo && thinkingCaption) && (
-            <p className="decision">
-              <span className="decision-action">{lastDecision.action}</span>
-              {decisionDetails(lastDecision).map((part) => ` · ${part}`)}
-            </p>
-          )}
-          <SessionControls
+          <p className="receipt" title={lastDecision ? `${lastDecision.action} · ${decisionDetails(lastDecision).join(" · ")}` : undefined}>
+            {!thinkingCaption && receipt ? receipt : "\u00a0"}
+          </p>
+          <PrimaryControls
             snapshot={snapshot}
-            onStopSpeaking={() => player.current?.stop()}
             micOn={micOn}
+            speaking={speaking}
             onToggleMic={() => void toggleMic()}
+            onStopSpeaking={() => player.current?.stop()}
           />
           <WhoJustAsked snapshot={snapshot} />
-          <AlertsPanel snapshot={snapshot} />
         </section>
-        <div className="side">
-          <MemoryPanel snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} />
-          {!demo && <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />}
-          {!demo && <SpeakerMap snapshot={snapshot} />}
-          <PeoplePanel snapshot={snapshot} />
-          <TranscriptPanel snapshot={snapshot} partial={partial} />
-        </div>
+        <SideTabs snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} partial={partial} />
       </div>
-      {!demo && <DebugDrawer snapshot={snapshot} />}
-      {!demo && <RecordClips listening={micOn} />}
+
+      {settings && (
+        <SettingsDrawer
+          snapshot={snapshot}
+          connected={connected}
+          micOn={micOn}
+          micLabel={micLabel}
+          demo={demo}
+          onDemo={setDemo}
+          onEnroll={() => {
+            setSettings(false);
+            openOnboarding();
+          }}
+          onClose={() => setSettings(false)}
+          onError={setError}
+        />
+      )}
       {onboarding && <VoiceOnboarding ownerName={snapshot.ownerName} onClose={() => setOnboarding(false)} />}
     </main>
   );
