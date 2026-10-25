@@ -62,7 +62,7 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
   - speaker labels are never spoken aloud.
 - [ ] Slice 4 by voice: rehearse escalation with a priority person live.
 - [x] Script gaps: per-memory `timesAsked` and per-speaker `askedByThisPerson` in the prompt; owner-set `toneNote` per person (prompt + editable line in the people panel, under the no-slurs/no-appearance rule); memory `context` ("in the 4 pm call") the imp may cite. **Tested only; not yet run live.**
-- [~] Slice 5 stage polish (on top of Projector demo mode): the technical decision line `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` now shows at full contrast in both views (under the plain-English receipt in demo mode), latency in seconds. While thinking, the caption rotates through in-character lines, the imp glows and fidgets, and dots appear over its head, so the decision wait reads as the character. **Checked in a headless browser at 1440×900 with the thinking state and decision line forced via DOM; not yet seen live or on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
+- [~] Slice 5 stage polish (on top of Projector demo mode and the busy thinking state): the technical decision line `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` shows at full contrast in both views (under the plain-English receipt in demo mode, hidden while thinking). Thinking also wags the tail, furrows a brow and shows pulsing dots over the imp. **Checked in a headless browser at 1440×900; not yet seen live or on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
 - [ ] Slice 5: venue rehearsal, video, submission.
 
 ## Honest limitations

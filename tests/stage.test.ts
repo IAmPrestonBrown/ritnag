@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DecisionSummary } from "../shared/events";
-import { THINKING_LINES, decisionDetails, formatLatency, thinkingLine } from "../src/stage";
+import { decisionDetails } from "../src/stage";
 
 const decision = (over: Partial<DecisionSummary> = {}): DecisionSummary => ({
   turnId: "t1",
@@ -16,11 +16,6 @@ const decision = (over: Partial<DecisionSummary> = {}): DecisionSummary => ({
 });
 
 describe("stage decision line", () => {
-  it("formats latency in seconds with one decimal", () => {
-    expect(formatLatency(1840)).toBe("1.8 s");
-    expect(formatLatency(640)).toBe("0.6 s");
-  });
-
   it("renders cited memories, Moss hits and latency in order", () => {
     expect(decisionDetails(decision())).toEqual(["cited m_42", "Moss 3 hits", "1.8 s"]);
   });
@@ -32,13 +27,5 @@ describe("stage decision line", () => {
 
   it("says when Moss was unavailable", () => {
     expect(decisionDetails(decision({ retrieval: { mode: "unavailable", hits: [] } }))).toContain("Moss unavailable");
-  });
-});
-
-describe("thinking caption", () => {
-  it("walks the lines in order and holds on the last one", () => {
-    expect(thinkingLine(0)).toBe(THINKING_LINES[0]);
-    expect(thinkingLine(1)).toBe(THINKING_LINES[1]);
-    expect(thinkingLine(99)).toBe(THINKING_LINES[THINKING_LINES.length - 1]);
   });
 });
