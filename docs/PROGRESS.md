@@ -50,6 +50,7 @@ Work is split into three streams (Ears / Face / Voice & Story) with tasks and ac
 - [x] Wording veto + self-ID suggestions + one-click "not me / that was me" re-attribution (`docs/SPEAKER_ID.md` §6).
 - [x] Test voice button; blocked browser playback now shows an error instead of failing silently.
 - [x] Turn-splitting fix: speaker by majority speech time, flicker absorbed, splits only on real handoffs (`docs/SPEAKER_ID.md` §7).
+- [x] Latency trace: one `[latency]` server log line per spoken reply, splitting end of question → first audio into stt / decide / tts / play against the 4 s target (`server/latency.ts`). Speech turns now carry real wall-clock `startedAt`/`endedAt` from the PCM stream clock. **Tested with a scripted Session only; not yet run live.** Live run procedure and score sheets: `docs/REHEARSAL.md`.
 - [ ] Slice 3: live Bob scene end to end by voice.
 - [x] Slice 4 logic, verified on real Haiku + Moss (typed): the owner states meeting facts in passing ("demoing at 10:30, table 42, Maya presents architecture"), and later paraphrases are answered from them. The executor now enforces the plan's routing:
   - approval/commit requests always alert;

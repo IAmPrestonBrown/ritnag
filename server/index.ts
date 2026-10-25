@@ -18,6 +18,7 @@ import { OwnerVoice } from "./voice/ownerVoice";
 import { SherpaVerifier } from "./voice/sherpa";
 import { voiceRoutes } from "./voice/routes";
 import { RecordingStore, recordingRoutes } from "./voice/recordings";
+import { LatencyTrace } from "./latency";
 import type { Health, ServerEvent } from "../shared/events";
 import {
   AckRequest,
@@ -47,10 +48,12 @@ const clients = new Set<WebSocket>();
 // Synthesis starts the moment a reply is decided, in parallel with the event reaching the browser.
 type Clip = { audio: Buffer; contentType: string };
 const clips = new Map<string, Promise<Clip>>();
+const latency = new LatencyTrace();
 const startSynthesis = (responseId: string, text: string, tone: Parameters<typeof synthesize>[1]) => {
   if (!cartesiaConfigured() || clips.has(responseId)) return;
   const t0 = Date.now();
   const p = synthesize(text, tone).then((c) => {
+    latency.ttsReady(responseId, Date.now());
     console.log(`[imp] tts ready in ${Date.now() - t0}ms (${tone})`);
     return c;
   });
@@ -60,6 +63,7 @@ const startSynthesis = (responseId: string, text: string, tone: Parameters<typeo
 };
 
 const emit = (e: ServerEvent) => {
+  latency.observe(e, Date.now()); // the timing line prints when playback starts (see /api/playback)
   if (e.type === "speech.ready") startSynthesis(e.responseId, e.text, e.tone);
   const msg = JSON.stringify(e);
   for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
@@ -270,6 +274,10 @@ app.post("/api/speech/test", (_req, res) => {
 app.post("/api/playback", (req, res) => {
   const b = body(PlaybackRequest, req, res);
   if (!b) return;
+  if (b.phase === "started") {
+    const line = latency.playbackStarted(b.responseId, Date.now());
+    if (line) console.log(line);
+  }
   session.playback(b.responseId, b.phase);
   res.json({ ok: true });
 });

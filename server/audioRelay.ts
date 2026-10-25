@@ -3,6 +3,7 @@ import type WebSocket from "ws";
 import { openDeepgram } from "./providers/deepgram";
 import { TurnAssembler, type AssembledTurn } from "./turnAssembler";
 import { PcmRing } from "./voice/pcm";
+import { streamTimeToWall } from "./latency";
 import type { Session } from "./session";
 import type { ServerEvent } from "../shared/events";
 
@@ -45,7 +46,11 @@ export class AudioRelay {
     this.assembler = new TurnAssembler(
       this.connectionId,
       (turn) => {
-        this.turns = this.turns.then(() => this.deliver(turn)).catch((err) => console.error("[imp] turn delivery failed", err));
+        // Read the stream clock now, before async scoring, so wall-clock speech times stay accurate.
+        const now = Date.now();
+        const streamNow = this.ring.durationSec;
+        const times = { startedAt: streamTimeToWall(turn.startSec, streamNow, now), endedAt: streamTimeToWall(turn.endSec, streamNow, now) };
+        this.turns = this.turns.then(() => this.deliver(turn, times)).catch((err) => console.error("[imp] turn delivery failed", err));
       },
       (speakerLabel, text) => {
         if (session.isMuted()) return; // don't show the imp transcribing itself
@@ -96,7 +101,7 @@ export class AudioRelay {
   }
 
   /** Score the turn's own audio (when there's a profile and it's long enough), then hand it to the session. */
-  private async deliver(turn: AssembledTurn) {
+  private async deliver(turn: AssembledTurn, times: { startedAt: number; endedAt: number }) {
     const durationSec = turn.endSec - turn.startSec;
     let ownerScore: number | null = null;
     const profile = this.voice.activeProfile();
@@ -114,6 +119,7 @@ export class AudioRelay {
       connectionId: this.connectionId,
       providerEventId: turn.providerEventId,
       source: "speech",
+      ...times,
       ownerScore,
       durationSec,
     });
