@@ -64,6 +64,15 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
   on a headless page, with screenshots checked and status polled. Real-voice (`voice: true`) lines were checked only in the earlier
   manual-cue run, not in a timeline recording.
 
+## Demo-video behaviors made real (2026-10-25)
+
+Every beat of `docs/director/demo-1024.json` now happens in the real pipeline: "who was that?", naming + learning
+in one owner turn, focus-mode answers right after the owner spoke, confirmed speakers addressed by name, visitor
+voiceprints recognized in a later session, keys-style questions relayed as alerts and cleared by the owner's
+answer, and the spoken day report. Verified: unit tests, plus a spoken two-session rehearsal through the real mic
+WebSocket, Speechmatics, Claude Haiku and Cartesia with macOS synthetic voices (not real people). The last two
+prompt tweaks ("I hate him" → savage; the report treats handled alerts as done) are unit-tested only.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**

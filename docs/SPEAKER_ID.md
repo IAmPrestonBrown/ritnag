@@ -250,3 +250,14 @@ Per-turn embeddings couldn't separate the owner from teammates on one laptop mic
 - **Verified** with synthetic voices through the real mic path (Daniel enrolled as owner; Rishi as Bob; Samantha as Maya): every owner line was labeled owner and Bob/Maya never were. The owner's answer was learned, the full demo script passed, and nothing leaked back as echo. The Deepgram path had merged owner and Bob into one label on the same audio.
 - **Cost:** about 2 s more latency than Deepgram (first reply audio ~4.8–7 s after a question in rehearsal, before lowering `max_delay` to 0.7 s).
 
+
+## 14. Visitors recognized across sessions (2026-10-25)
+
+When the owner names a voice ("that was Jason", or a click in the UI), the relay's last ~30 s of that voice's
+audio becomes a Speechmatics voiceprint, stored per person in `data/imp-memory.json` (`voiceprints`), and
+refreshed with more audio when listening stops (at least 3 s needed). The next `mic.start` enrolls every saved
+visitor print next to the owner's, labeled `person_<personId>`; Speechmatics then labels that person's words
+itself, the session binds the label automatically and shows "Jason detected · Voice recognized". A provider-
+recognized voice is never re-learned from (only owner-confirmed audio makes prints). **Reset → everything**
+forgets the prints. Verified by a spoken two-session rehearsal (synthetic voices) on 2026-10-25; not yet with
+real people in a noisy room.

@@ -8,11 +8,12 @@ import type { ZodType } from "zod";
 import { JsonMemoryStore } from "./memory";
 import { Session, TYPED_CONNECTION } from "./session";
 import { SYSTEM_PROMPT, buildUserMessage, type Decider } from "./decision";
-import { claudeDecide, anthropicModel } from "./providers/claude";
+import { claudeDecide, claudeText, anthropicModel } from "./providers/claude";
+import { REPORT_SYSTEM } from "./report";
 import { synthesizeStream, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
-import { AudioRelay } from "./audioRelay";
+import { AudioRelay, PERSON_LABEL } from "./audioRelay";
 import { ReactionBank } from "./reactions";
 import { speechmaticsConfigured, sttProvider } from "./providers/stt";
 import { speechmaticsVoiceprint } from "./providers/speechmaticsEnroll";
@@ -133,7 +134,38 @@ const session = new Session(store, decider, index, {
   voiceStatus: () => voice.status(),
   builtInFacts: true,
   react: process.env.REACTIONS === "off" ? undefined : (tone) => reactions.pick(tone),
+  report: process.env.ANTHROPIC_API_KEY ? (r) => claudeText(REPORT_SYSTEM, JSON.stringify(r)) : undefined,
+  // the owner just named a voice: learn it, so next session Speechmatics recognizes that person itself
+  onBound: (connectionId, label, personId) => {
+    if (relay?.connectionId === connectionId) learnVoiceprint(relay, label, personId);
+  },
 });
+
+// ---- visitor voiceprints (Speechmatics): learned when the owner names a voice, refreshed when listening stops ----
+const MIN_VOICEPRINT_SEC = 3;
+let voiceprintQueue: Promise<void> = Promise.resolve(); // one at a time: the provider allows 2 sessions
+function learnVoiceprint(r: AudioRelay, label: string, personId: string) {
+  if (sttProvider() !== "speechmatics" || label.startsWith(PERSON_LABEL)) return; // already recognized by print
+  const { takes, seconds } = r.voiceAudio(label);
+  if (seconds < MIN_VOICEPRINT_SEC) return void console.log(`[imp] voiceprint for ${personId}: only ${seconds.toFixed(1)} s of audio so far`);
+  voiceprintQueue = voiceprintQueue.then(async () => {
+    try {
+      const ids = await speechmaticsVoiceprint(takes);
+      if (!ids.length) return;
+      await store.setVoiceprint(personId, ids);
+      await refreshVisitorPrints();
+      console.log(`[imp] learned a voiceprint for ${personId} from ${seconds.toFixed(1)} s; recognized from the next session`);
+    } catch (err) {
+      console.warn(`[imp] voiceprint for ${personId} failed:`, err instanceof Error ? err.message : err);
+    }
+  });
+}
+// cached: a mic.start must create its relay synchronously (audio frames follow immediately)
+let visitorPrints: { label: string; speaker_identifiers: string[] }[] = [];
+async function refreshVisitorPrints() {
+  visitorPrints = Object.entries(await store.voiceprints()).map(([personId, ids]) => ({ label: `${PERSON_LABEL}${personId}`, speaker_identifiers: ids }));
+}
+void refreshVisitorPrints();
 voice.init();
 void session.rebuildIndex();
 void reactions.warm(); // local records -> Moss on every boot
@@ -330,6 +362,7 @@ app.post("/api/session/stop", async (_req, res) => {
 
 app.post("/api/session/reset", async (req, res) => {
   await session.reset({ wipe: true, everything: req.body?.everything === true });
+  await refreshVisitorPrints(); // "everything" forgets visitors' voices too
   res.json({ ok: true });
 });
 
@@ -446,9 +479,12 @@ server.on("upgrade", (req, socket, head) => {
           (ended) => {
             if (relay === ended) relay = null;
             if (mine === ended) mine = null;
+            // more audio than at naming time: refresh the prints of everyone named on this connection
+            for (const [label, personId] of session.boundLabels(ended.connectionId)) learnVoiceprint(ended, label, personId);
           },
           rate!,
           voice,
+          visitorPrints,
         );
       } else if (msg.type === "mic.stop") {
         mine?.stop();

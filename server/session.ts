@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { MemoryStore } from "./memory";
 import type { Decider, DecisionContext } from "./decision";
-import { validateDecision, type Effect } from "./executor";
+import { validateDecision, type Effect, type ExecContext } from "./executor";
 import { resolveOwner, type ActiveVoiceProfile } from "./voice/resolver";
 import { stripNames } from "./anonymize";
+import { REPORT_REQUEST, buildDayReport, plainReport, type DayReport } from "./report";
 import type { ImpState, IndexStatus, Notice, ServerEvent, Snapshot, VoiceStatus } from "../shared/events";
 import type { Memory, Person, Tone, Utterance } from "../shared/schemas";
 
@@ -28,6 +29,9 @@ const REACT_MIN_SCORE = 0.2;
 const BANTER_COOLDOWN_MS = 15_000;
 // "Leon detected" at most once a minute per person; the owner is announced once per session
 const NAME_NOTICE_MS = 60_000;
+// "who was that?": asked after this much quiet, about a voice heard within the window
+const WHO_ASK_MS = 2500;
+const WHO_WINDOW_MS = 30_000;
 const FALLBACK_MEMORIES = 50;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
@@ -95,6 +99,12 @@ export interface SessionOptions {
   builtInFacts?: boolean;
   /** Instant in-character reaction for a tone, played while a guest's question is being decided. */
   react?: (tone: Tone) => { key: string; text: string } | null;
+  /** Words the day report (Claude in production); plainReport when absent or failing. */
+  report?: (r: DayReport) => Promise<string>;
+  /** The owner bound a voice to a person (learn its voiceprint for next time). */
+  onBound?: (connectionId: string, label: string, personId: string) => void;
+  /** Quiet time after the owner talks to an unknown voice before the imp asks "who was that?". */
+  whoAskMs?: number;
 }
 
 const NO_VOICE: VoiceStatus = {
@@ -144,6 +154,10 @@ export class Session {
   private lastOwnerSpokeAt = -Infinity;
   // notices: speaker labels already announced this session, and when each name was last announced
   private seenVoices = new Set<string>();
+  // "who was that?": the last unidentified voice, voices already asked about, and the pending ask
+  private lastUnknown: { key: string; utterance: Utterance; at: number } | null = null;
+  private askedWho = new Set<string>();
+  private whoTimer: ReturnType<typeof setTimeout> | null = null;
   private lastNamed = new Map<string, number>();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
@@ -170,6 +184,7 @@ export class Session {
     for (const key of [...this.pendingUnknown.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.pendingUnknown.delete(key);
     for (const key of [...this.suggestions.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.suggestions.delete(key);
     this.verifiedOwnerLabels = [];
+    this.lastNamed.clear(); // a new listening session announces people afresh
     this.speechConnectionId = connectionId;
     this.ownerSpeakerLabel = null;
     // Without a voice profile, every new connection starts by finding the owner's label.
@@ -199,7 +214,8 @@ export class Session {
     return this.bindings.get(key(connectionId, label)) ?? null;
   }
 
-  async bindSpeaker(connectionId: string, label: string, personId: string | null) {
+  /** auto: the provider recognized the voice (no owner action), so there's nothing new to learn from it. */
+  async bindSpeaker(connectionId: string, label: string, personId: string | null, opts: { auto?: boolean } = {}) {
     const k = key(connectionId, label);
     if (personId) this.bindings.set(k, personId);
     else this.bindings.delete(k);
@@ -215,8 +231,84 @@ export class Session {
     this.opts.emit({ type: "speaker.bound", speakerLabel: label, personId, generation: this.generation });
     if (personId) {
       const person = (await this.store.listPeople()).find((p) => p.id === personId);
-      if (person) this.announceName(person.id, person.name);
+      if (person) this.announceName(person.id, person.name, opts.auto ? "Voice recognized" : null);
+      if (!opts.auto) this.opts.onBound?.(connectionId, label, personId);
     }
+    await this.broadcast();
+  }
+
+  /** Voice labels bound to people on a connection (for learning their voiceprints when it ends). */
+  boundLabels(connectionId: string): [string, string][] {
+    return [...this.bindings].flatMap(([k, personId]) => (k.startsWith(`${connectionId}|`) ? [[k.slice(connectionId.length + 1), personId] as [string, string]] : []));
+  }
+
+  // ---------- "who was that?" ----------
+
+  /**
+   * The owner just dealt with a voice the imp doesn't know: once the room goes quiet, ask the owner
+   * who it was (once per voice). The answer ("that was Preston, he's annoying") names and binds it.
+   */
+  private trackWhoWasThat(u: Utterance, generation: number) {
+    this.cancelWhoAsk(); // anyone talking resets the quiet
+    const k = key(u.connectionId, u.speakerLabel);
+    if (!u.isOwner && !u.personId) {
+      this.lastUnknown = { key: k, utterance: u, at: this.now() };
+      return;
+    }
+    const unknown = this.lastUnknown;
+    if (!u.isOwner || !u.ownerCertain || !unknown || this.askedWho.has(unknown.key)) return;
+    if (this.now() - unknown.at > WHO_WINDOW_MS) return;
+    this.whoTimer = setTimeout(() => {
+      this.whoTimer = null;
+      if (generation !== this.generation || this.isSpeaking() || this.askedWho.has(unknown.key)) return;
+      if (this.bindings.has(unknown.key)) return; // named meanwhile
+      this.askedWho.add(unknown.key);
+      this.pendingUnknown.set(unknown.key, unknown.utterance);
+      this.queueSpeech(`Hey, ${this.opts.ownerName}. Who was that?`, generation, "playful");
+      void this.broadcast();
+    }, this.opts.whoAskMs ?? WHO_ASK_MS);
+    this.whoTimer.unref?.();
+  }
+
+  private cancelWhoAsk() {
+    if (this.whoTimer) clearTimeout(this.whoTimer);
+    this.whoTimer = null;
+  }
+
+  // ---------- day report ----------
+
+  /** "Can you give me a report on the day?": a spoken recap of what the imp handled today. */
+  private async speakReport(u: Utterance, generation: number) {
+    const started = this.now();
+    this.setState("thinking", null);
+    const day = new Date(this.now());
+    day.setHours(0, 0, 0, 0);
+    const data = await buildDayReport(this.store, day.getTime(), this.opts.ownerName);
+    let text = plainReport(data);
+    if (this.opts.report) {
+      try {
+        text = await this.opts.report(data);
+      } catch (err) {
+        console.warn("[imp] report fell back to the plain version:", err instanceof Error ? err.message : err);
+      }
+    }
+    if (generation !== this.generation) return;
+    const responseId = this.queueSpeech(text, generation, "friendly");
+    this.opts.emit({
+      type: "decision.completed",
+      generation,
+      decision: {
+        turnId: u.id,
+        action: "REPORT",
+        personId: null,
+        memoryIds: [],
+        spokenText: text,
+        responseId,
+        latencyMs: this.now() - started,
+        note: null,
+        retrieval: { mode: "unavailable", hits: [] },
+      },
+    });
     await this.broadcast();
   }
 
@@ -241,11 +333,11 @@ export class Session {
     this.notice("person", "New person detected", `Unknown voice · ${u.speakerLabel}`);
   }
 
-  private announceName(id: string, name: string) {
+  private announceName(id: string, name: string, detail: string | null = null) {
     const last = this.lastNamed.get(id);
     if (last !== undefined && (id === "owner" || this.now() - last < NAME_NOTICE_MS)) return;
     this.lastNamed.set(id, this.now());
-    this.notice("name", `${name} detected`, id === "owner" ? "Owner voice" : null);
+    this.notice("name", `${name} detected`, id === "owner" ? "Owner voice" : detail);
   }
 
   private voiceProfile() {
@@ -272,6 +364,9 @@ export class Session {
     this.lastOwnerSpokeAt = -Infinity;
     this.seenVoices.clear();
     this.lastNamed.clear();
+    this.cancelWhoAsk();
+    this.lastUnknown = null;
+    this.askedWho.clear();
     if (opts.wipe) {
       this.bindings.clear();
       this.id = randomUUID();
@@ -351,7 +446,10 @@ export class Session {
       return utterance;
     }
     void this.broadcast();
-    if (turn.source === "speech") await this.announceSpeaker(utterance);
+    if (turn.source === "speech") {
+      await this.announceSpeaker(utterance);
+      this.trackWhoWasThat(utterance, generation);
+    }
     this.enqueue(utterance, generation);
     return utterance;
   }
@@ -385,6 +483,7 @@ export class Session {
       console.log(`[imp] skipped filler (${utterance.isOwner ? "owner" : "visitor"}): "${utterance.text.slice(0, 60)}"`);
       return;
     }
+    if (utterance.isOwner && utterance.ownerCertain && REPORT_REQUEST.test(utterance.text)) return this.speakReport(utterance, generation);
     // Latency counts from arrival, so time spent waiting behind other turns shows on screen.
     const started = enqueuedAt;
     this.setState("thinking", null);
@@ -459,16 +558,43 @@ export class Session {
     });
     // The owner is in the conversation: stay out of it. A question goes unanswered aloud (the owner
     // is right there, and their reply gets learned as the answer); an alert is raised on screen only.
-    const quiet = role === "visitor" && this.ownerEngaged();
+    // Focus mode is the owner saying "handle it", so the imp answers even right after they spoke.
+    const quiet = role === "visitor" && this.ownerEngaged() && !this.focusMode;
     const effect: Effect = quiet && validated.kind === "answer" ? { kind: "wait", spokenText: null, isQuestion: true } : validated;
     if (quiet && validated.kind !== "wait") console.log(`[imp] staying quiet: the owner is in the conversation`);
     const applied = await this.apply(effect, utterance, generation, ctx.pendingQuestion);
-    const line = quiet ? null : applied;
+    // "That was Preston, I hate him. Alright guys, CC me on the emails.": one owner turn can name
+    // someone and state a fact. The fact is learned too, through the same checks as a LEARN.
+    const execCtx: ExecContext = {
+      role,
+      ownerCertain: utterance.isOwner && utterance.ownerCertain,
+      utteranceId: utterance.id,
+      speakerPersonId: utterance.personId,
+      ownerPersonId: null,
+      activeMemories: memories,
+      knownUtteranceIds: new Set(recent.map((u) => u.id)),
+      focusMode: this.focusMode,
+      now: this.now(),
+    };
+    let alsoSaid: string | null = null;
+    if (effect.kind === "learn" && decision.identityProposal && role === "owner") {
+      const person = validateDecision({ ...decision, action: "UPDATE_PERSON" }, execCtx);
+      if (person.kind === "update_person") alsoSaid = await this.apply(person, utterance, generation, ctx.pendingQuestion);
+    }
+    if (effect.kind === "update_person" && decision.memoryProposal && role === "owner") {
+      const learn = validateDecision({ ...decision, action: "LEARN" }, execCtx);
+      if (learn.kind === "learn") await this.apply(learn, utterance, generation, ctx.pendingQuestion);
+    }
+    const line = quiet ? null : applied ?? alsoSaid;
     if (generation !== this.generation) return;
-    // Everyone stays anonymous aloud. Re-read people: apply() may have just added one.
+    // Re-read people: apply() may have just added one.
     const others = line ? (await this.store.listPeople()).map((p) => p.name) : [];
     // Visitors stay anonymous aloud; the owner's name may be said (e.g. when someone asks for it).
-    let spoken = line && stripNames(line, { owner: "", others: others.filter((n) => !sameName(n, this.opts.ownerName)) });
+    // A confirmed speaker may be addressed by name; every other visitor's name is removed.
+    const speakerName = ctx.speaker && ctx.identityCertain ? ctx.speaker.name : role === "owner" ? decision.identityProposal?.name ?? null : null;
+    let spoken =
+      line &&
+      stripNames(line, { owner: "", others: others.filter((n) => !sameName(n, this.opts.ownerName) && !(speakerName && sameName(n, speakerName))) });
     // A deflection ("ask the owner") is optional talk. While the imp talks the mic is deaf (echo
     // guard) and a new line cuts off the current one, so a chatty imp misses real questions. Never
     // deflect over its own speech, and at most once per person per DEFLECT_COOLDOWN_MS.
@@ -539,6 +665,8 @@ export class Session {
           reason: effect.reason,
         });
         if (generation !== this.generation) return null;
+        // The owner's next reply may answer it ("they're in my bag"): learned, and the alert cleared.
+        this.pendingQuestion = u;
         this.opts.emit({ type: "alert.created", alert, generation });
         this.setState("alert", effect.reason);
         return effect.spokenText ?? "Hang on, flagging that for the owner.";
@@ -567,6 +695,11 @@ export class Session {
         await this.addMemory(effect.memory, effect.supersedesId);
         // Clear only the question this decision answered; a newer one may have arrived meanwhile.
         if (this.pendingQuestion && this.pendingQuestion.id === sawPending?.id) this.pendingQuestion = null;
+        if (sawPending) {
+          // the owner just answered an escalated question: that alert is handled
+          for (const a of await this.store.listAlerts())
+            if (!a.acknowledgedAt && a.questionUtteranceId === sawPending.id) await this.store.acknowledgeAlert(a.id);
+        }
         return null;
       }
       case "update_person": {
@@ -762,7 +895,8 @@ export class Session {
   }
 
   private reactInstantly(u: Utterance, role: "owner" | "visitor", speaker: Person | null, generation: number, topScore: number | null) {
-    if (role !== "visitor" || !this.opts.react || u.source !== "speech" || this.isSpeaking() || this.ownerEngaged()) return;
+    if (role !== "visitor" || !this.opts.react || u.source !== "speech" || this.isSpeaking()) return;
+    if (this.ownerEngaged() && !this.focusMode) return;
     if (!looksLikeQuestion(u.text) && !REQUEST.test(u.text)) return;
     // Only when an answer (or an escalation) is likely: "Hmm." followed by silence is worse than nothing.
     const likelyAnswer = topScore !== null && topScore >= REACT_MIN_SCORE;

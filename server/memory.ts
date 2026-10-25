@@ -40,6 +40,10 @@ export interface MemoryStore {
 
   /** Wipes conversation data for a known demo state. People survive unless `everything`. */
   reset(everything: boolean): Promise<void>;
+
+  /** Speechmatics voiceprints of visitors, by person id: lets the provider recognize them next session. */
+  voiceprints(): Promise<Record<string, string[]>>;
+  setVoiceprint(personId: string, ids: string[]): Promise<void>;
 }
 
 interface JsonData {
@@ -48,9 +52,10 @@ interface JsonData {
   utterances: Utterance[];
   questionEvents: QuestionEvent[];
   alerts: Alert[];
+  voiceprints: Record<string, string[]>;
 }
 
-const empty = (): JsonData => ({ people: [], memories: [], utterances: [], questionEvents: [], alerts: [] });
+const empty = (): JsonData => ({ people: [], memories: [], utterances: [], questionEvents: [], alerts: [], voiceprints: {} });
 
 /** Server-side JSON file, written atomically. The source of truth. */
 export class JsonMemoryStore implements MemoryStore {
@@ -185,7 +190,17 @@ export class JsonMemoryStore implements MemoryStore {
   }
 
   async reset(everything: boolean) {
-    this.data = { ...empty(), people: everything ? [] : this.data.people };
+    this.data = { ...empty(), people: everything ? [] : this.data.people, voiceprints: everything ? {} : this.data.voiceprints };
+    this.save();
+  }
+
+  async voiceprints() {
+    // only people who still exist
+    return Object.fromEntries(Object.entries(this.data.voiceprints).filter(([id]) => this.data.people.some((p) => p.id === id)));
+  }
+
+  async setVoiceprint(personId: string, ids: string[]) {
+    this.data.voiceprints = { ...this.data.voiceprints, [personId]: ids };
     this.save();
   }
 }

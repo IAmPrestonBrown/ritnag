@@ -51,3 +51,20 @@ export async function claudeDecide(system: string, user: string): Promise<Decisi
   }
   throw lastError;
 }
+
+/** One short free-text reply (the spoken day report). Same model; no thinking on Haiku. */
+export async function claudeText(system: string, user: string, maxTokens = 300): Promise<string> {
+  const model = anthropicModel();
+  const thinking = model.includes("haiku") ? { thinking: { type: "disabled" as const } } : {};
+  const response = await getClient().messages.create({
+    model,
+    max_tokens: maxTokens,
+    ...thinking,
+    system,
+    messages: [{ role: "user", content: user }],
+  });
+  if (response.stop_reason === "refusal") throw new Error("Claude declined the report");
+  const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(" ").trim();
+  if (!text) throw new Error("empty report");
+  return text;
+}

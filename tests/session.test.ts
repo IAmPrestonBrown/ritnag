@@ -162,9 +162,9 @@ describe("session pipeline", () => {
     expect(bob.tone).toBe("sarcastic");
     expect(session.personFor(TYPED_CONNECTION, "guest-A")).toBe(bob.id);
     expect(session.personFor(TYPED_CONNECTION, "owner")).toBeNull();
-    // Bob's next paraphrase is answered from the stored fact, with his name.
+    // Bob's next paraphrase is answered from the stored fact; the owner confirmed him, so he's addressed by name.
     await say("guest-A", "Is the frontend code up yet?");
-    expect(spoken().at(-1)).toBe("Yes. Pushed."); // known, but never named aloud
+    expect(spoken().at(-1)).toBe("Yes, Bob. Pushed.");
   });
 
   it("a new speech connection clears voice-label bindings", async () => {
@@ -699,8 +699,8 @@ describe("script gaps", () => {
     const msg = JSON.parse(buildUserMessage(calls.at(-1)!));
     expect(msg.speaker).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
     expect(msg.people[0]).toMatchObject({ tone: "annoyed", toneNote: "talk to him like he's five" });
-    // a visitor turn gives Claude no names to say: not the speaker's, the people list's, or the transcript labels
-    expect(msg.speaker.name).toBeUndefined();
+    // a visitor turn gives Claude only the confirmed speaker's own name, not the people list's or the transcript's
+    expect(msg.speaker.name).toBe("Bob");
     expect(msg.people[0].name).toBeUndefined();
     expect(JSON.stringify(msg.transcript.map((t: { speaker: string }) => t.speaker))).not.toMatch(/Bob|Preston/);
     // a name still said in conversation is caught before speech (stripNames)
@@ -808,8 +808,28 @@ describe("script gaps", () => {
       expect(all).toMatch(/hang on/i);
     });
 
-    it("the prompt keeps speakers and the owner anonymous", () => {
-      expect(SYSTEM_PROMPT).toContain("Never say a visitor's name aloud");
+    it("only a confirmed speaker's own name may be said; other visitors stay anonymous", async () => {
+      const { say, store, session, spoken } = setup((ctx) =>
+        ctx.role === "visitor" && ctx.utterance.text.includes("DoorDash")
+          ? { action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0]!.id], factualAnswer: "A #7", spokenText: "Hey Bob, Maya asked this too. A #7." }
+          : scripted(ctx),
+      );
+      await store.createPerson({ name: "Maya", relationship: null, tone: "neutral", priority: false });
+      const bob = await store.createPerson({ name: "Bob", relationship: null, tone: "neutral", priority: false });
+      await session.addMemory(
+        { kind: "faq", canonicalQuestion: "DoorDash order?", factualAnswer: "A #7", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
+        null,
+      );
+      await say("guest-A", "What's the DoorDash order?");
+      expect(spoken().at(-1)).not.toMatch(/Bob|Maya/); // unidentified speaker: no names at all
+      await session.bindSpeaker(TYPED_CONNECTION, "guest-A", bob.id);
+      await say("guest-A", "What's the DoorDash order again?");
+      expect(spoken().at(-1)).toContain("Bob"); // the confirmed speaker himself
+      expect(spoken().at(-1)).not.toContain("Maya");
+    });
+
+    it("the prompt keeps other visitors anonymous", () => {
+      expect(SYSTEM_PROMPT).toContain("Never say any other visitor's name");
       expect(SYSTEM_PROMPT).not.toContain("Use the person's name");
       // no real names baked into the examples the model imitates, and no counts or times either
       expect(SYSTEM_PROMPT).not.toMatch(/Preston|Leon|Maya,|Bob"\)/);
@@ -914,5 +934,142 @@ describe("pop-up notices", () => {
     await say("guest-A", "Did you push the frontend PR?");
     await say("owner", "That was Bob, my roommate. Be sarcastic with him.");
     expect(notices(events)).toEqual(["question: New question detected", "person: New person: Bob", "name: Bob detected"]);
+  });
+});
+
+describe("demo beats (docs/director/demo-1024.json) work for real", () => {
+  const speech = (session: Session) => {
+    session.setSpeechConnection("sm-1");
+    session.setOwnerSpeaker("owner");
+    return async (speakerLabel: string, text: string) => {
+      // echoFiltered: the relay has already removed the imp's own voice (as the real AudioRelay does)
+      await session.ingest({ source: "speech", connectionId: "sm-1", asOwner: false, text, speakerLabel, providerEventId: `${speakerLabel}:${text}`, echoFiltered: true });
+      await session.idle();
+    };
+  };
+  const make = (script: (ctx: DecisionContext) => Partial<Decision>, opts: Partial<ConstructorParameters<typeof Session>[3]> = {}) => {
+    const events: ServerEvent[] = [];
+    const store = new JsonMemoryStore(null);
+    const session = new Session(store, async (ctx) => ({ ...base, ...script(ctx) }), new FakeIndex(), {
+      ownerName: "Leon",
+      emit: (e) => events.push(e),
+      speechGuardMs: 50,
+      whoAskMs: 30,
+      ...opts,
+    });
+    const spoken = () => events.flatMap((e) => (e.type === "speech.ready" ? [e.text] : []));
+    return { events, store, session, spoken, say: speech(session) };
+  };
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("asks the owner who an unknown voice was, once, then names it from the answer (and learns a fact said with it)", async () => {
+    const { session, spoken, say, store } = make((ctx) =>
+      ctx.role === "owner" && ctx.utterance.text.includes("Preston")
+        ? {
+            action: "UPDATE_PERSON",
+            identityProposal: { name: "Preston", relationship: "coworker", tone: "savage", toneNote: null, priority: null, refersTo: "pending_unknown" },
+            memoryProposal: { kind: "fact", canonicalQuestion: "Who do I CC on the emails?", factualAnswer: "CC the owner on every email", sourceUtteranceIds: [ctx.utterance.id], isTransient: false, supersedesMemoryId: null, context: "team call" },
+          }
+        : {},
+    );
+    await say("S2", "Yo, you got a sec?");
+    await say("owner", "Bro, what do you want? Get out of here.");
+    await sleep(60);
+    expect(spoken()).toEqual(["Hey, Leon. Who was that?"]);
+    await say("owner", "That was just Preston, I hate him. Alright guys, CC me on all the emails.");
+    const preston = (await store.listPeople()).find((p) => p.name === "Preston")!;
+    expect(preston.tone).toBe("savage");
+    expect(session.personFor("sm-1", "S2")).toBe(preston.id);
+    expect((await store.listAllMemories()).map((m) => m.factualAnswer)).toEqual(["CC the owner on every email"]);
+    // not asked again about the same voice
+    await say("owner", "Okay back to work.");
+    await sleep(60);
+    expect(spoken().filter((t) => t.includes("Who was that"))).toHaveLength(1);
+  });
+
+  it("doesn't ask while someone keeps talking", async () => {
+    const { spoken, say } = make(() => ({}));
+    await say("S2", "Yo, you got a sec?");
+    await say("owner", "What do you want?");
+    await say("S2", "Just wanted to say hi.");
+    await sleep(60);
+    expect(spoken()).toEqual([]);
+  });
+
+  it("in focus mode answers a repeat right after the owner spoke; outside focus mode stays quiet", async () => {
+    for (const focus of [true, false]) {
+      const { session, spoken, say } = make((ctx) =>
+        ctx.role === "visitor" && ctx.memories[0]
+          ? { action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0].id], factualAnswer: "CC the owner", spokenText: "CC Leon, genius." }
+          : {},
+      );
+      session.setFocus(focus);
+      await session.addMemory({ kind: "fact", canonicalQuestion: "Who do I CC?", factualAnswer: "CC the owner", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null }, null);
+      await say("owner", "Alright guys, CC me on everything.");
+      await say("S2", "Who was I supposed to CC on those emails?");
+      expect(spoken().includes("CC Leon, genius.")).toBe(focus);
+    }
+  });
+
+  it("the owner's answer to an escalated question is learned and clears the alert", async () => {
+    const { store, say, session } = make((ctx) =>
+      ctx.role === "visitor"
+        ? { action: "ALERT_OWNER", isQuestion: true, isImportant: true, alertReason: "needs the owner's keys", spokenText: "Leon, where are your keys? Someone needs them." }
+        : ctx.pendingQuestion
+          ? { action: "LEARN", memoryProposal: { kind: "faq", canonicalQuestion: "Where are the owner's keys?", factualAnswer: "In the owner's bag", sourceUtteranceIds: [ctx.pendingQuestion.id, ctx.utterance.id], isTransient: true, supersedesMemoryId: null, context: null } }
+          : {},
+    );
+    session.setFocus(true);
+    await say("S3", "Leon, where are your keys at?");
+    expect((await store.listAlerts()).filter((a) => !a.acknowledgedAt)).toHaveLength(1);
+    await say("owner", "Oh yeah, they're in my bag.");
+    expect((await store.listAlerts()).filter((a) => !a.acknowledgedAt)).toHaveLength(0);
+    expect((await store.listAllMemories())[0]!.factualAnswer).toBe("In the owner's bag");
+  });
+
+  it("speaks a report on the day when the owner asks for one, from the question log", async () => {
+    let got: unknown = null;
+    const { session, spoken, say, store, calls } = (() => {
+      const calls: DecisionContext[] = [];
+      const m = make(
+        (ctx) => {
+          calls.push(ctx);
+          return ctx.role === "visitor" && ctx.memories[0]
+            ? { action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0].id], factualAnswer: "x", spokenText: "A #7." }
+            : {};
+        },
+        { report: async (r) => ((got = r), "Hey Leon. Jason got his sandwich answer.") },
+      );
+      return { ...m, calls };
+    })();
+    const jason = await store.createPerson({ name: "Jason", relationship: null, tone: "neutral", priority: false });
+    await session.addMemory({ kind: "faq", canonicalQuestion: "What's the DoorDash order?", factualAnswer: "A #7", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null }, null);
+    await session.bindSpeaker("sm-1", "S3", jason.id);
+    await say("S3", "What do you want in your DoorDash order?");
+    const decisions = calls.length;
+    await say("owner", "Hey. Can you give me a report on the day?");
+    expect(calls.length).toBe(decisions); // not a decision: the report path
+    expect(spoken().at(-1)).toBe("Hey Leon. Jason got his sandwich answer.");
+    expect(got).toMatchObject({ ownerName: "Leon", answered: [{ question: "What's the DoorDash order?", times: 1, askedBy: ["Jason"] }] });
+  });
+});
+
+describe("one owner turn can both teach and name", () => {
+  it("a LEARN that also names the unknown voice creates and binds the person", async () => {
+    const { say, store, session } = setup((ctx) =>
+      ctx.role === "owner" && ctx.utterance.text.startsWith("Sam")
+        ? {
+            action: "LEARN",
+            memoryProposal: { kind: "fact", canonicalQuestion: "Who do I CC?", factualAnswer: "CC the owner", sourceUtteranceIds: [ctx.utterance.id], isTransient: false, supersedesMemoryId: null, context: null },
+            identityProposal: { name: "Sam", relationship: null, tone: "savage", toneNote: null, priority: null, refersTo: "pending_unknown" },
+          }
+        : scripted(ctx),
+    );
+    await say("guest-A", "You got a second?");
+    await say("owner", "Sam. He's so annoying. Alright guys, CC me on the emails.");
+    const sam = (await store.listPeople()).find((p) => p.name === "Sam")!;
+    expect(sam.tone).toBe("savage");
+    expect(session.personFor(TYPED_CONNECTION, "guest-A")).toBe(sam.id);
+    expect((await store.listAllMemories()).map((m) => m.factualAnswer)).toEqual(["CC the owner"]);
   });
 });

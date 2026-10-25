@@ -37,6 +37,19 @@ Roast the repeat questions, not people. No jokes about appearance; the decision 
 
 **Fallbacks:** typed input in ⚙ Settings (say so out loud if you use it), the recorded video on the desktop, phone hotspot if Wi-Fi drops.
 
+## What the imp does on its own (all shown in the demo video)
+
+- **"Hey <owner>, who was that?"**: after the owner talks to a voice it doesn't know and the room goes quiet
+  (2.5 s), once per voice. Answer naturally ("that was just Preston, he's annoying"): the person is created, bound,
+  given a tone, and their voice is learned for next time. A fact said in the same breath is learned too.
+- **Focus mode** answers repeats even right after the owner spoke (outside focus mode it stays quiet for 8 s
+  after the owner talks), and relays questions only the owner can answer ("Leon, Jason needs to know where your
+  keys are") as an alert. The owner's reply is learned and clears the alert.
+- **Names**: a confirmed person is addressed by name ("Jason, ..."); other visitors' names are never said.
+- **"Give me a report on the day"** (also "recap", "catch me up", "what did I miss"): a short spoken summary of
+  today's repeats, alerts and open questions, from the question log.
+- For the video's story, set `OWNER_NAME=Leon` in `.env` on the machine where Leon is the owner.
+
 ## Pop-up notices
 
 Four pop-ups appear at the top of the screen, each with a draining time bar, then slide out (hover pauses one, click dismisses):

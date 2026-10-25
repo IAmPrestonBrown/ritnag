@@ -20,6 +20,10 @@ export interface TurnScorer {
 
 /** The label Speechmatics puts on words from the enrolled owner. */
 export const OWNER_LABEL = "owner";
+/** Enrolled visitors get the label `person_<personId>`: Speechmatics recognizing them binds them. */
+export const PERSON_LABEL = "person_";
+// audio kept per voice for learning its voiceprint (enough for a solid print, bounded memory)
+const VOICE_CLIP_MAX_SEC = 30;
 
 /**
  * One live microphone stream: browser PCM16 -> Deepgram -> turn assembler -> owner voice score -> session.
@@ -41,6 +45,8 @@ export class AudioRelay {
   private mutedSpans: Span[] = [];
   private droppedEcho: string[] = [];
   private closed = false;
+  // each visitor voice's recent turns, for learning a voiceprint when the owner names them
+  private labelAudio = new Map<string, Float32Array[]>();
 
   constructor(
     private readonly session: Session,
@@ -48,6 +54,8 @@ export class AudioRelay {
     private readonly onEnded: (relay: AudioRelay) => void,
     private readonly sampleRate: number,
     private readonly voice: TurnScorer,
+    /** Visitors' voiceprints (labels PERSON_LABEL + id), recognized alongside the owner. */
+    visitors: SpeakerEnrollment[] = [],
   ) {
     this.ring = new PcmRing(sampleRate, RING_SECONDS);
     session.setSpeechConnection(this.connectionId);
@@ -76,7 +84,7 @@ export class AudioRelay {
       },
     );
 
-    this.enrolled = voice.providerEnrollment();
+    this.enrolled = [...voice.providerEnrollment(), ...visitors];
     this.stt = this.connect();
     this.ownerEnrolled = this.stt.name === "speechmatics" && this.enrolled.some((e) => e.label === OWNER_LABEL);
   }
@@ -179,6 +187,15 @@ export class AudioRelay {
         console.log(`[imp] voice ${r.score.toFixed(3)} in ${r.ms}ms (${turn.speakerLabel}, ${durationSec.toFixed(1)}s)`);
       }
     }
+    const ownerLabel = this.ownerEnrolled && turn.speakerLabel === OWNER_LABEL;
+    if (!ownerLabel && !this.session.isPlaying()) this.keepVoiceAudio(turn.speakerLabel, turn.startSec, turn.endSec);
+    // Speechmatics recognized an enrolled visitor: bind the label to them (shown as "<name> detected").
+    if (turn.speakerLabel.startsWith(PERSON_LABEL)) {
+      const personId = turn.speakerLabel.slice(PERSON_LABEL.length);
+      if (this.session.personFor(this.connectionId, turn.speakerLabel) !== personId) {
+        await this.session.bindSpeaker(this.connectionId, turn.speakerLabel, personId, { auto: true });
+      }
+    }
     await this.session.ingest({
       text: turn.text,
       speakerLabel: turn.speakerLabel,
@@ -192,6 +209,21 @@ export class AudioRelay {
       providerOwner: this.ownerEnrolled ? turn.speakerLabel === OWNER_LABEL : null,
       echoFiltered: true,
     });
+  }
+
+  private keepVoiceAudio(label: string, startSec: number, endSec: number) {
+    const pcm = this.ring.slice(startSec, endSec);
+    if (!pcm) return;
+    const clips = [...(this.labelAudio.get(label) ?? []), pcm];
+    let total = clips.reduce((n, c) => n + c.length, 0);
+    while (clips.length > 1 && total > VOICE_CLIP_MAX_SEC * this.sampleRate) total -= clips.shift()!.length;
+    this.labelAudio.set(label, clips);
+  }
+
+  /** One voice's recent audio in this connection, for its voiceprint. */
+  voiceAudio(label: string): { takes: { pcm: Float32Array; sampleRate: number }[]; seconds: number } {
+    const clips = this.labelAudio.get(label) ?? [];
+    return { takes: clips.map((pcm) => ({ pcm, sampleRate: this.sampleRate })), seconds: clips.reduce((n, c) => n + c.length, 0) / this.sampleRate };
   }
 
   /** Server going down: close the provider session immediately. */
