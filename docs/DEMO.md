@@ -5,14 +5,16 @@
 ## Setup (2 min before going on)
 
 1. `npm run dev`, open the printed link in **Chrome** (not Safari).
-2. Press **D** (or the header's **Demo mode** button, or add `?demo=1`) for the projector view: big imp and caption, a plain-English line under the caption saying *why* the imp did something, and no technical clutter. Press **D** again to exit; the typed-input fallback and speaker tools live in the normal view.
-3. Check the mic: the header dropdown (normal view) shows **MacBook … Microphone**, not an iPhone.
-4. **Reset demo → Wipe memory + people** for a clean start. Your voice profile is kept.
-5. **Test voice** once, so the browser allows audio, and check the volume.
-6. **Start listening**, then turn **Focus mode** on and off once. The first click asks Chrome for notification permission; answer it now, not on stage. Allow it, or Block it if you don't want banners during the demo (the alert chime works either way).
-7. Stop and start listening once more so the session starts clean, and you're ready.
+2. Open **⚙ Settings** (top right; Esc closes it):
+   - **Mic** shows **MacBook … Microphone**, not an iPhone.
+   - **Voice out**: if you're wearing headphones, send the imp's voice to the room speaker so visitors hear it. Use a Bluetooth or USB speaker; wired headphones turn off the Mac's built-in speakers. Alerts stay in your headphones.
+   - **Reset demo → Wipe memory + people** for a clean start. Your voice profile is kept.
+   - **Test voice** once, so the browser allows audio, and check the volume on the room speaker.
+3. Press **D** for projector mode if you're on a projector.
+4. **Start listening**, then toggle **Focus** on and off once. The first click asks Chrome for notification permission; answer it now, not on stage. Allow or Block; the alert chime works either way.
+5. Stop and start listening once more so the session starts clean, and you're ready.
 
-Recovery during the demo: if a voice is mislabeled, use **that was me / not me** on the transcript line, or the **Who just spoke?** buttons under the imp. Say out loud that it's a manual correction.
+Recovery during the demo: if a voice is mislabeled, use the **Who just spoke?** buttons under the imp, or **that was me / not me** on the line in the **Transcript** tab. Say out loud that it's a manual correction. Typed input is in ⚙ Settings.
 
 Verified end to end in demo mode (typed input, real Claude, Moss and Cartesia): question → learn → "That was Bob" → sarcastic recall with the memory cited → a second person gets a friendly answer → a priority person's rollback request escalates in focus mode.
 
@@ -31,4 +33,4 @@ Drop the 1:50 beat first if time runs short. Never drop the meeting recall or th
 
 Roast the repeat questions, not people. No jokes about appearance; the decision prompt refuses them anyway.
 
-**Fallbacks:** typed input open in the debug drawer (say so out loud if you use it), the recorded video on the desktop, phone hotspot if Wi-Fi drops.
+**Fallbacks:** typed input in ⚙ Settings (say so out loud if you use it), the recorded video on the desktop, phone hotspot if Wi-Fi drops.
