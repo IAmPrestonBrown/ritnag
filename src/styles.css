@@ -112,6 +112,9 @@ input { flex: 1; min-width: 0; }
 .debug .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .debug .bind { display: flex; gap: 4px; align-items: center; font-size: 13px; }
 .error { color: var(--bad); }
+.record-clips .level { display: inline-block; width: 8rem; height: 8px; background: #1b1621; border-radius: 4px; overflow: hidden; }
+.record-clips .level span { display: block; height: 100%; background: var(--ok); transition: width 0.15s; }
+.record-clips .clips { margin-top: 6px; }
 .mic-picker { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; }
 .mic-picker select { max-width: 14rem; font-size: 12px; padding: 2px 6px; }
 .who-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; font-size: 13px; }

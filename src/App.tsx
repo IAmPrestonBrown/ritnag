@@ -4,6 +4,7 @@ import { connectEvents, hasToken, post } from "./api";
 import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
 import { MicPicker } from "./components/MicPicker";
+import { RecordClips } from "./components/RecordClips";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
@@ -185,6 +186,7 @@ export function App() {
         </div>
       </div>
       <DebugDrawer snapshot={snapshot} />
+      <RecordClips listening={micOn} />
       {onboarding && <VoiceOnboarding ownerName={snapshot.ownerName} onClose={() => setOnboarding(false)} />}
     </main>
   );
