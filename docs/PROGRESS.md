@@ -54,7 +54,9 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
   - "ask Preston" deflections only happen in focus mode;
   - speaker labels are never spoken aloud.
 - [ ] Slice 4 by voice: rehearse escalation with a priority person live.
-- [ ] Slice 5: polish, venue rehearsal, video, submission.
+- [x] Script gaps: per-memory `timesAsked` and per-speaker `askedByThisPerson` in the prompt; owner-set `toneNote` per person (prompt + editable line in the people panel, under the no-slurs/no-appearance rule); memory `context` ("in the 4 pm call") the imp may cite. **Tested only; not yet run live.**
+- [~] Slice 5 stage polish: **Stage view** toggle in the header (remembered per browser) grows the imp and caption for 3 m viewing and hides dev-only panels (voice, speaker map, debug, recordings). Decision line under the imp reads `ANSWER · cited m_42 · Moss 3 hits · 1.8 s` at full contrast. While thinking, the caption rotates through in-character lines, the imp glows and fidgets, and dots appear over its head. **Checked in a headless browser at 1440×900 (thinking state and decision line forced via DOM); not yet seen on the venue screen.** Not done: `setSinkId` headphone routing, the 10-second teammate test.
+- [ ] Slice 5: venue rehearsal, video, submission.
 
 ## Honest limitations
 

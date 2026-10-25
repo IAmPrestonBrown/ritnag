@@ -9,6 +9,7 @@ import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
+import { THINKING_LINE_MS, decisionDetails, thinkingLine, useStageMode } from "./stage";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -27,6 +28,8 @@ export function App() {
   const [micOn, setMicOn] = useState(false);
   const [micLabel, setMicLabel] = useState("");
   const [onboarding, setOnboarding] = useState(false);
+  const [stage, toggleStage] = useStageMode();
+  const [thinkTick, setThinkTick] = useState(0);
 
   const stopMic = () => {
     mic.current.stop(conn.current?.socket() ?? null);
@@ -97,6 +100,15 @@ export function App() {
     return () => clearInterval(t);
   }, [speaking]);
 
+  // Rotate the thinking caption so the wait reads as the imp working, not lag.
+  const isThinking = !speaking && impState === "thinking";
+  useEffect(() => {
+    setThinkTick(0);
+    if (!isThinking) return;
+    const t = setInterval(() => setThinkTick((n) => n + 1), THINKING_LINE_MS);
+    return () => clearInterval(t);
+  }, [isThinking]);
+
   if (!hasToken) {
     return (
       <main className="gate">
@@ -119,20 +131,23 @@ export function App() {
   const idx = snapshot.index;
 
   return (
-    <main className={`app ${openAlerts ? "has-alert" : ""}`}>
+    <main className={`app ${openAlerts ? "has-alert" : ""} ${stage ? "stage-mode" : ""}`}>
       <header className="status">
         <strong>Imp</strong>
+        <button className={`small ${stage ? "on" : ""}`} onClick={toggleStage}>
+          {stage ? "Exit stage view" : "Stage view"}
+        </button>
         <span className={`pill ${connected ? "ok" : "bad"}`}>{connected ? "connected" : "reconnecting…"}</span>
         <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
           mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
         </span>
-        <MicPicker live={micOn} inUse={micLabel} />
+        {!stage && <MicPicker live={micOn} inUse={micLabel} />}
         {micOn && micLabel && /iphone|ipad/i.test(micLabel) && <span className="pill bad">using {micLabel}</span>}
-        <span className="pill">memory: local JSON</span>
+        {!stage && <span className="pill">memory: local JSON</span>}
         <span className={`pill ${!idx.configured ? "bad" : idx.lastError ? "bad" : idx.ready ? "ok" : ""}`}>
           Moss {!idx.configured ? "not configured" : idx.ready ? `${idx.docCount} docs${idx.pushPending ? " · syncing" : ""}` : "not ready"}
         </span>
-        {idx.configured && (
+        {!stage && idx.configured && (
           <button className="small" onClick={() => post("/api/index/rebuild").catch((e: Error) => setError(e.message))}>
             Rebuild index
           </button>
@@ -158,14 +173,13 @@ export function App() {
       <div className="layout">
         <section className="stage">
           <ImpAvatar state={shownState} mouthOpen={mouthOpen} />
-          <p className="caption">{caption ?? "Waiting for an interruption."}</p>
+          <p className={`caption ${isThinking ? "caption--thinking" : ""}`} aria-live="polite">
+            {isThinking ? thinkingLine(thinkTick) : caption ?? "Waiting for an interruption."}
+          </p>
           {lastDecision && (
-            <p className="decision muted">
-              {lastDecision.action}
-              {lastDecision.memoryIds.length > 0 && ` · cited ${lastDecision.memoryIds.join(", ")}`}
-              {` · ${lastDecision.retrieval.mode === "moss" ? `Moss ${lastDecision.retrieval.hits.length} hits` : "Moss unavailable"}`}
-              {` · ${lastDecision.latencyMs} ms`}
-              {lastDecision.note && ` · ${lastDecision.note}`}
+            <p className="decision">
+              <span className="decision-action">{lastDecision.action}</span>
+              {decisionDetails(lastDecision).map((part) => ` · ${part}`)}
             </p>
           )}
           <SessionControls
@@ -179,14 +193,14 @@ export function App() {
         </section>
         <div className="side">
           <MemoryPanel snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} />
-          <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />
-          <SpeakerMap snapshot={snapshot} />
+          {!stage && <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />}
+          {!stage && <SpeakerMap snapshot={snapshot} />}
           <PeoplePanel snapshot={snapshot} />
           <TranscriptPanel snapshot={snapshot} partial={partial} />
         </div>
       </div>
-      <DebugDrawer snapshot={snapshot} />
-      <RecordClips listening={micOn} />
+      {!stage && <DebugDrawer snapshot={snapshot} />}
+      {!stage && <RecordClips listening={micOn} />}
       {onboarding && <VoiceOnboarding ownerName={snapshot.ownerName} onClose={() => setOnboarding(false)} />}
     </main>
   );
