@@ -45,6 +45,14 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 - Fixed tonight: owner announcements to others ("CC me on all outreach emails") were ignored as "talking to someone else"; **Reset demo could crash the server** (Moss push timer touching a closed index).
 - Live-mic speaker ID remains the risk; recover with "that was me" / "who just spoke" and say so.
 
+## Feature gaps closed (2026-10-24, night)
+
+- **"You asked me that last week"**: Claude now gets when this person last asked each memory, already in words ("yesterday", "last week"), and the prompt says to use it rather than guess. Tested with a scripted clock; not yet heard from real Claude.
+- **Flirty tone** (PG, nothing about looks) in the People panel, the prompt, and Cartesia delivery (`flirtatious`). Tested in code; not yet heard from real Claude or Cartesia.
+- **Most asked** list (asked 2+ times, top 5) at the top of the Memory panel. Checked in a browser with seeded data.
+- **Alert chime + system notification** when something escalates, so a focused owner in headphones hears it. Notification permission is asked when focus mode or the mic is turned on. Message text is unit-tested; the chime and notification haven't been triggered by a real alert in a browser yet.
+- Still open: priority people only weigh importance through the prompt; the executor doesn't enforce them.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**

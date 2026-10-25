@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Snapshot } from "../../shared/events";
 import { post } from "../api";
+import { primeAlerts } from "../notify";
 
 const TYPED_SPEAKERS = ["owner", "guest-A", "guest-B", "guest-C"];
 
@@ -26,7 +27,11 @@ export function SessionControls({
       )}
       <button
         className={snapshot.session.focusMode ? "on" : ""}
-        onClick={() => post("/api/focus", { focusMode: !snapshot.session.focusMode })}
+        onClick={() => {
+          // focus mode is when alerts matter most; ask for notifications from this click
+          if (!snapshot.session.focusMode) primeAlerts();
+          void post("/api/focus", { focusMode: !snapshot.session.focusMode });
+        }}
       >
         Focus mode: {snapshot.session.focusMode ? "on" : "off"}
       </button>

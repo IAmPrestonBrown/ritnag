@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const Tone = z.enum(["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"]);
+export const Tone = z.enum(["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage", "flirty"]);
 export type Tone = z.infer<typeof Tone>;
 
 export const TONE_NOTE_MAX = 200;

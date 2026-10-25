@@ -46,7 +46,7 @@ class FakeIndex implements MemoryIndex {
 
 const VOICE = { thresholds: { accept: 0.62, reject: 0.45 }, minScorableSec: 1.2 };
 
-function setup(script: (ctx: DecisionContext) => Partial<Decision>, opts: { voice?: boolean } = {}) {
+function setup(script: (ctx: DecisionContext) => Partial<Decision>, opts: { voice?: boolean; now?: () => number } = {}) {
   const store = new JsonMemoryStore(null);
   const index = new FakeIndex();
   const events: ServerEvent[] = [];
@@ -64,6 +64,7 @@ function setup(script: (ctx: DecisionContext) => Partial<Decision>, opts: { voic
       speechGuardMs: 50,
       playbackCooldownMs: 0,
       voiceProfile: () => (opts.voice ? VOICE : null),
+      now: opts.now,
     },
   );
   const say = async (speakerLabel: string, text: string, extra: Partial<Parameters<Session["ingest"]>[0]> = {}) => {
@@ -573,5 +574,59 @@ describe("script gaps", () => {
     expect((await store.listAllMemories())[0]!.context).toBe("in the 4 pm call");
     await say("guest-A", "Who do I CC on those emails?");
     expect(JSON.parse(buildUserMessage(calls.at(-1)!)).memories[0].context).toBe("in the 4 pm call");
+  });
+
+  it("tells Claude when this person last asked, in words, so it can say 'last week'", async () => {
+    let clock = Date.UTC(2026, 9, 16, 17);
+    const { say, calls } = setup(
+      (ctx) =>
+        ctx.role === "owner" && ctx.pendingQuestion && !ctx.utterance.text.startsWith("That was")
+          ? {
+              action: "LEARN",
+              memoryProposal: {
+                kind: "faq",
+                canonicalQuestion: "Where is the demo table?",
+                factualAnswer: "Table 42.",
+                sourceUtteranceIds: [],
+                isTransient: false,
+                supersedesMemoryId: null,
+                context: null,
+              },
+            }
+          : ctx.role === "visitor" && ctx.memories[0]
+            ? { action: "ANSWER", isQuestion: true, memoryIds: [ctx.memories[0].id], spokenText: "Table 42." }
+            : scripted(ctx),
+      { now: () => clock },
+    );
+    await say("guest-A", "Where's our demo table?");
+    await say("owner", "Table 42.");
+    await say("owner", "That was Bob.");
+    await say("guest-A", "Which table are we at?");
+    clock += 8 * 24 * 60 * 60 * 1000;
+    await say("guest-A", "Remind me which table?");
+    const msg = JSON.parse(buildUserMessage(calls.at(-1)!));
+    expect(msg.memories[0]).toMatchObject({ askedByThisPerson: 1, lastAskedByThisPerson: "last week" });
+    expect(msg.now).toBe(new Date(clock).toISOString());
+    // the prompt points at the field instead of inviting a guess
+    expect(SYSTEM_PROMPT).toContain("lastAskedByThisPerson");
+    expect(SYSTEM_PROMPT).not.toContain("second time today");
+  });
+
+  it("an unidentified asker has no last-asked time", async () => {
+    const { say, calls } = setup(scripted);
+    await say("guest-A", "Did you push the frontend PR?");
+    await say("owner", "Yes, it's pushed and waiting for review.");
+    await say("guest-B", "Is the frontend up?");
+    expect(JSON.parse(buildUserMessage(calls.at(-1)!)).memories[0].lastAskedByThisPerson).toBeNull();
+  });
+
+  it("offers a flirty tone, kept PG and behind the guardrails", () => {
+    expect(PersonUpdateRequest.parse({ personId: "p_1", tone: "flirty" }).tone).toBe("flirty");
+    expect(SYSTEM_PROMPT).toMatch(/flirt with (him|her|them)[^\n]*-> flirty/);
+    expect(SYSTEM_PROMPT).toMatch(/- flirty: [^\n]*(never|Never)[^\n]*(looks|appearance)/);
+    expect(SYSTEM_PROMPT.indexOf("- flirty:")).toBeLessThan(SYSTEM_PROMPT.indexOf("Never use slurs"));
+    // it never speaks for the owner's feelings and doesn't ramp up with repeats
+    expect(SYSTEM_PROMPT).not.toContain("crush");
+    expect(SYSTEM_PROMPT).toMatch(/- flirty: [^\n]*how the owner feels[^\n]*repeat/);
   });
 });

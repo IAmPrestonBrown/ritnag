@@ -11,6 +11,8 @@ import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./compon
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
+import { notifyAlert, primeAlerts } from "./notify";
+import type { Person } from "../shared/schemas";
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -29,6 +31,8 @@ export function App() {
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  // the event handler is registered once, so it reads people through a ref
+  const people = useRef<Person[]>([]);
   const player = useRef<Player | null>(null);
   const mic = useRef(new MicCapture());
   const conn = useRef<ReturnType<typeof connectEvents> | null>(null);
@@ -64,6 +68,7 @@ export function App() {
   };
   const toggleMic = async () => {
     if (mic.current.active) return stopMic();
+    primeAlerts();
     const socket = conn.current?.socket();
     if (!socket || socket.readyState !== WebSocket.OPEN) return setError("Not connected to the Ritnag server.");
     try {
@@ -87,6 +92,7 @@ export function App() {
       switch (e.type) {
         case "snapshot":
           generation.current = e.snapshot.session.generation;
+          people.current = e.snapshot.people;
           setSnapshot(e.snapshot);
           break;
         case "state.changed":
@@ -107,6 +113,9 @@ export function App() {
         case "speech.ready":
           setCaption(e.text);
           player.current?.play(e.responseId, e.text).catch((err: Error) => setError(`Voice: ${err.message}`));
+          break;
+        case "alert.created":
+          notifyAlert(e.alert, people.current);
           break;
         case "error":
           setError(e.message);
