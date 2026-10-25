@@ -77,7 +77,13 @@ export class MossIndex {
     try {
       this.client ??= new MossClient(process.env.MOSS_PROJECT_ID!, process.env.MOSS_PROJECT_KEY!);
       // A fresh session starts empty; we fill it from local records rather than trusting the cloud copy.
-      await this.session?.close?.();
+      // Detach the old session before closing it, and cancel any pending push, so nothing (the push
+      // timer, a concurrent query) can touch a closed SessionIndex in the gap before the new one opens.
+      const old = this.session;
+      this.session = null;
+      if (this.pushTimer) clearTimeout(this.pushTimer);
+      this.pushTimer = null;
+      await old?.close?.();
       this.session = await this.client.session(INDEX_NAME());
       if (memories.length) await this.session.addDocs(memories.map(toDoc), { upsert: true });
       this.status = { ...this.status, ready: true, docCount: this.session.docCount, lastError: null };
@@ -146,14 +152,15 @@ export class MossIndex {
   }
 
   private async push() {
-    if (!this.session) return;
-    if (this.session.docCount === 0) {
-      // Moss rejects pushing an empty index; nothing to mirror yet.
-      this.status.pushPending = false;
-      return void this.onChange();
-    }
+    const session = this.session;
+    if (!session) return;
     try {
-      await this.session.pushIndex();
+      if (session.docCount === 0) {
+        // Moss rejects pushing an empty index; nothing to mirror yet.
+        this.status.pushPending = false;
+        return void this.onChange();
+      }
+      await session.pushIndex();
       this.status.lastPushAt = Date.now();
       this.status.pushPending = false;
       this.onChange();

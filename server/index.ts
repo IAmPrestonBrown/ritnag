@@ -34,6 +34,10 @@ import {
   TurnRequest,
 } from "../shared/schemas";
 
+// A stray async error in a provider (index sync, a socket) must not take the live demo down.
+process.on("unhandledRejection", (err) => console.error("[imp] unhandled rejection:", err));
+process.on("uncaughtException", (err) => console.error("[imp] uncaught exception:", err));
+
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const OWNER_NAME = process.env.OWNER_NAME || "Preston";

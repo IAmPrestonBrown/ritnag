@@ -38,6 +38,13 @@ Not yet verified: browser playback with real start/end events, and anything Deep
 
 One spoken question triggers exactly one audible answer, with no feedback loop. Mic code is written and unit-tested (assembler and calibration) and waits on the Deepgram key.
 
+## Demo status (2026-10-24, late evening)
+
+- **Projector demo mode** (D / `?demo=1`) with plain-English "why" lines under the caption.
+- **The full demo script in `docs/DEMO.md` passes end to end, 3/3 runs, in demo mode** (typed turns; real Claude, Moss and Cartesia; isolated data): learn → "That's Bob… talk to him like he's five" → a meeting fact said to the room is learned → Bob's question about it is answered from memory → repeat called out → priority teammate's rollback escalates.
+- Fixed tonight: owner announcements to others ("CC me on all outreach emails") were ignored as "talking to someone else"; **Reset demo could crash the server** (Moss push timer touching a closed index).
+- Live-mic speaker ID remains the risk; recover with "that was me" / "who just spoke" and say so.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**
