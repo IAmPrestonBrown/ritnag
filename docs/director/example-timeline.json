@@ -1,0 +1,32 @@
+{
+  "isolate": true,
+  "events": [
+    { "at": 0, "do": "listening", "on": true },
+    { "at": 0, "do": "tab", "tab": "transcript" },
+
+    { "at": 1000, "do": "say", "who": "owner", "text": "Okay, heads down. Demo's due in an hour.", "ms": 2300 },
+    { "at": 1200, "do": "notice", "kind": "name", "title": "Preston detected", "detail": "Owner voice" },
+
+    { "at": 5000, "do": "say", "who": "guest", "text": "Hey, what's the wifi password?", "ms": 1600 },
+    { "at": 5300, "do": "notice", "kind": "person", "title": "New person detected", "detail": "Unknown voice · S2" },
+    { "at": 6700, "do": "notice", "kind": "question", "title": "New question detected", "detail": "Hey, what's the wifi password?" },
+
+    { "at": 8000, "do": "say", "who": "owner", "text": "It's calhacks2026. Now let me work.", "ms": 2000 },
+    { "at": 10100, "do": "memory", "id": "wifi", "question": "What's the wifi password?", "answer": "calhacks2026" },
+
+    { "at": 13000, "do": "say", "who": "Leon", "text": "Yo, what's the wifi password?", "ms": 1500 },
+    { "at": 13300, "do": "notice", "kind": "name", "title": "Leon detected" },
+    { "at": 14600, "do": "think", "ms": 1300 },
+    { "at": 15900, "do": "repeat", "memory": "wifi", "who": "Leon" },
+    { "at": 15900, "do": "notice", "kind": "repeat", "title": "Answer repeated", "detail": "Yo, what's the wifi password?" },
+    { "at": 15900, "do": "imp", "text": "It's calhacks2026. He literally just said it.", "tone": "sarcastic", "voice": false, "ms": 2600 },
+    { "at": 16000, "do": "tab", "tab": "memory" },
+
+    { "at": 21000, "do": "say", "who": "Leon", "text": "Can I push straight to main?", "ms": 1500 },
+    { "at": 22600, "do": "think", "ms": 1100 },
+    { "at": 23700, "do": "alert", "who": "Leon", "reason": "Approval request: pushing to main" },
+    { "at": 23700, "do": "imp", "text": "Hang on, flagging that for the owner.", "voice": false, "ms": 1900 },
+    { "at": 26000, "do": "say", "who": "owner", "text": "No. Open a PR.", "ms": 900 },
+    { "at": 27000, "do": "ack" }
+  ]
+}

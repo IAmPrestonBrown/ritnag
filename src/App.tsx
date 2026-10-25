@@ -11,9 +11,10 @@ import { SettingsDrawer } from "./components/SettingsDrawer";
 import { SideTabs } from "./components/SideTabs";
 import { VoiceOnboarding } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
-import { notifyAlert, primeAlerts } from "./notify";
+import { chime, notifyAlert, primeAlerts } from "./notify";
 import { Toasts, useToasts } from "./components/Toasts";
-import { useDirector } from "./director";
+import { director, loadScript, useStage } from "./director";
+import { post } from "./api";
 import type { Person } from "../shared/schemas";
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
@@ -27,18 +28,14 @@ export function App() {
   const [mouthOpen, setMouthOpen] = useState(false);
   // A decision is in flight. Ends at decision.completed, not at playback, so a TTS failure never hides the answer.
   const [deciding, setDeciding] = useState(false);
+  // The director (scripted demo) owns the screen while stage.active; see src/director.ts.
+  const stage = useStage();
   // Before any early return: hooks must run in the same order every render.
-  const thinkingCaption = useThinkingCaption(!speaking && deciding);
+  const thinkingCaption = useThinkingCaption(stage.active ? !speaking && !stage.speaking && stage.thinking : !speaking && deciding);
   const [lastDecision, setLastDecision] = useState<DecisionSummary | null>(null);
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const toasts = useToasts();
-  const director = useDirector({
-    onPartial: setPartial,
-    onThinking: setDeciding,
-    onNotice: toasts.push,
-    onError: (m) => setError(m),
-  });
   const generation = useRef(0);
   // the event handler is registered once, so it reads people through a ref
   const people = useRef<Person[]>([]);
@@ -99,36 +96,44 @@ export function App() {
     if (!hasToken) return;
     const c = connectEvents((e: ServerEvent) => {
       if ("generation" in e && e.generation < generation.current) return; // stale
+      // While the director owns the screen, live activity doesn't show (its own speech still plays).
+      const live = !director.stage.active;
       switch (e.type) {
+        case "director":
+          director.handle(e.request);
+          break;
         case "snapshot":
           generation.current = e.snapshot.session.generation;
           people.current = e.snapshot.people;
           setSnapshot(e.snapshot);
           break;
         case "state.changed":
+          if (!live) break;
           setImpState(e.state);
           setDeciding(e.state === "thinking");
           if (e.caption) setCaption(e.caption);
           break;
         case "transcript.partial":
-          setPartial({ speakerLabel: e.speakerLabel, text: e.text });
+          if (live) setPartial({ speakerLabel: e.speakerLabel, text: e.text });
           break;
         case "transcript.final":
           setPartial(null);
           break;
         case "decision.completed":
+          if (!live) break;
           setLastDecision(e.decision);
           setDeciding(false);
           break;
         case "speech.ready":
+          if (!director.claimSpeech(e.text)) break;
           setCaption(e.text);
           player.current?.play(e.responseId, e.text).catch((err: Error) => setError(`Voice: ${err.message}`));
           break;
         case "alert.created":
-          notifyAlert(e.alert, people.current);
+          if (live) notifyAlert(e.alert, people.current);
           break;
         case "notice":
-          toasts.push(e.notice);
+          if (live) toasts.push(e.notice);
           break;
         case "error":
           setError(e.message);
@@ -144,12 +149,61 @@ export function App() {
     return c.close;
   }, []);
 
-  // Mouth flaps only while audio is actually playing.
+  // Director: its side effects, the N key, and window.ritnag for agents driving the page.
   useEffect(() => {
-    if (!speaking) return setMouthOpen(false);
+    let lastStatus = 0;
+    let statusTimer: ReturnType<typeof setTimeout> | null = null;
+    director.hooks = {
+      notice: toasts.push,
+      speak: async (text, tone) => {
+        try {
+          await post("/api/director/say", { text, tone });
+        } catch (err) {
+          console.warn("[director] voice:", (err as Error).message);
+        }
+      },
+      demo: setDemo,
+      chime,
+      status: (s) => {
+        // reported for GET /api/director/status, at most every 400 ms
+        const send = () => {
+          lastStatus = Date.now();
+          statusTimer = null;
+          void post("/api/director/status", director.status()).catch(() => {});
+        };
+        if (statusTimer) return;
+        const wait = Math.max(0, 400 - (Date.now() - lastStatus));
+        if (wait === 0 && !s.playing) send();
+        else statusTimer = setTimeout(send, wait);
+      },
+    };
+    const api = {
+      run: (cmds: unknown) => director.run(cmds),
+      play: (timeline: unknown, from = 0) => director.play(timeline, from),
+      stop: () => director.stop(),
+      /** isolate (default true): hide real data; reset(false) returns to the live app */
+      reset: (isolate = true) => director.reset(isolate),
+      live: () => director.reset(false),
+      state: () => director.status(),
+      stage: () => director.stage,
+    };
+    (window as unknown as { ritnag: typeof api }).ritnag = api;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if ((e.key === "n" || e.key === "N") && !e.metaKey && !e.ctrlKey && !e.altKey) void director.nextCue(loadScript());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toasts.push]);
+
+  // Mouth flaps only while audio is actually playing.
+  const talking = speaking || stage.speaking;
+  useEffect(() => {
+    if (!talking) return setMouthOpen(false);
     const t = setInterval(() => setMouthOpen((o) => !o), 130);
     return () => clearInterval(t);
-  }, [speaking]);
+  }, [talking]);
 
   if (!hasToken) {
     return (
@@ -160,8 +214,8 @@ export function App() {
     );
   }
   if (!rawSnapshot) return <main className="gate">Connecting to Ritnag…</main>;
-  // Director rows (scripted intro) appear in the panels exactly like heard speech.
-  const snapshot = director.overlay(rawSnapshot);
+  // Director rows, people, memories and alerts appear in the panels exactly like live ones.
+  const snapshot = director.view(rawSnapshot);
 
   // Enrollment phrases must not reach the live pipeline (they include questions).
   const openOnboarding = () => {
@@ -170,11 +224,16 @@ export function App() {
   };
   const voice = snapshot.session.voice;
 
-  const shownState: ImpState = speaking ? "speaking" : impState;
+  const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
+  const shownState: ImpState = stage.active
+    ? stage.state ?? (talking ? "speaking" : stage.thinking ? "thinking" : openAlerts ? "alert" : snapshot.session.listening ? "listening" : "idle")
+    : speaking
+      ? "speaking"
+      : impState;
   const recalled = lastDecision?.memoryIds.map((id) => snapshot.memories.find((m) => m.id === id)).filter((m) => m !== undefined) ?? [];
   const asker = lastDecision?.personId ? snapshot.people.find((p) => p.id === lastDecision.personId) : undefined;
   // Plain-English "why" for the audience; the technical line stays in normal mode.
-  const receipt = !lastDecision
+  const liveReceipt = !lastDecision
     ? null
     : lastDecision.action === "ANSWER" && recalled[0]
       ? `Recalled from memory${asker ? ` (asked ${snapshot.counts.byPerson[asker.id] ?? 1}×)` : ""}: “${recalled[0].factualAnswer}”`
@@ -185,9 +244,11 @@ export function App() {
           : lastDecision.action === "UPDATE_PERSON"
             ? "Updated who's who"
             : null;
-  const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
-  // A running director script looks live.
-  const listening = snapshot.session.listening || director.active;
+  const receipt = stage.active ? stage.receipt : liveReceipt;
+  const shownCaption = stage.active ? stage.caption : caption;
+  const shownPartial = stage.active ? stage.partial : partial;
+  const shownError = stage.active ? stage.error : error;
+  const listening = snapshot.session.listening;
   const needsAttention = !connected || Boolean(snapshot.index.lastError);
   const statusText = !connected ? "Reconnecting…" : listening ? "Listening" : micOn ? "Connecting…" : "Not listening";
 
@@ -220,10 +281,10 @@ export function App() {
         {micOn && /iphone|ipad/i.test(micLabel) && (
           <div className="banner warn">Listening through {micLabel}. Pick the laptop mic in Settings.</div>
         )}
-        {error && (
+        {shownError && (
           <div className="banner err">
-            <span>{error}</span>
-            <button className="small" onClick={() => setError(null)}>
+            <span>{shownError}</span>
+            <button className="small" onClick={() => (stage.active ? void director.run({ do: "error", text: null }) : setError(null))}>
               Dismiss
             </button>
           </div>
@@ -235,21 +296,26 @@ export function App() {
           <AlertsPanel snapshot={snapshot} />
           <ImpAvatar state={shownState} mouthOpen={mouthOpen} />
           <p className={`caption${thinkingCaption ? " thinking" : ""}`} aria-live="polite">
-            {thinkingCaption ?? caption ?? "Waiting for an interruption."}
+            {thinkingCaption ?? shownCaption ?? "Waiting for an interruption."}
           </p>
-          <p className="receipt" title={lastDecision ? `${lastDecision.action} · ${decisionDetails(lastDecision).join(" · ")}` : undefined}>
+          <p className="receipt" title={lastDecision && !stage.active ? `${lastDecision.action} · ${decisionDetails(lastDecision).join(" · ")}` : undefined}>
             {!thinkingCaption && receipt ? receipt : "\u00a0"}
           </p>
           <PrimaryControls
             snapshot={snapshot}
-            micOn={micOn || director.active}
+            micOn={micOn || (stage.active && listening)}
             speaking={speaking}
             onToggleMic={() => void toggleMic()}
             onStopSpeaking={() => player.current?.stop()}
           />
           <WhoJustAsked snapshot={snapshot} />
         </section>
-        <SideTabs snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} partial={partial} />
+        <SideTabs
+          snapshot={snapshot}
+          highlight={stage.active ? stage.highlight : lastDecision?.memoryIds ?? []}
+          partial={shownPartial}
+          tab={stage.tab}
+        />
       </div>
 
       <Toasts toasts={toasts.toasts} onLeave={toasts.leave} onRemove={toasts.remove} />
@@ -262,7 +328,6 @@ export function App() {
           micLabel={micLabel}
           demo={demo}
           onDemo={setDemo}
-          director={director}
           onEnroll={() => {
             setSettings(false);
             openOnboarding();

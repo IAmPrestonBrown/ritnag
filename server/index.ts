@@ -23,6 +23,7 @@ import { voiceRoutes } from "./voice/routes";
 import { RecordingStore, recordingRoutes } from "./voice/recordings";
 import { LatencyTrace } from "./latency";
 import type { Health, ServerEvent } from "../shared/events";
+import { DirectorRequest, type DirectorStatus } from "../shared/director";
 import {
   AckRequest,
   FocusRequest,
@@ -138,6 +139,7 @@ void session.rebuildIndex();
 void reactions.warm(); // local records -> Moss on every boot
 
 const app = express();
+app.use("/api/director", express.json({ limit: "2mb" })); // whole demo timelines
 app.use(express.json({ limit: "64kb" }));
 
 const health = (): Health => ({
@@ -209,7 +211,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 const body = <T,>(schema: ZodType<T>, req: Request, res: Response): T | null => {
   const r = schema.safeParse(req.body);
   if (!r.success) {
-    res.status(400).json({ error: r.error.issues.map((i) => i.message).join("; ") });
+    res.status(400).json({ error: r.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join("; ") });
     return null;
   }
   return r.data;
@@ -366,6 +368,29 @@ app.post("/api/director/say", (req, res) => {
   if (!b) return;
   if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
   res.json({ responseId: session.say(b.text, b.tone) });
+});
+
+// Director: an agent (or `npm run director`) drives every open page with scripted commands or a timeline.
+let directorStatus: DirectorStatus | null = null;
+app.post("/api/director", (req, res) => {
+  const b = body(DirectorRequest, req, res);
+  if (!b) return;
+  const n = [b.commands, b.timeline, b.stop].filter((x) => x !== undefined).length;
+  if (n !== 1) return void res.status(400).json({ error: "send exactly one of commands, timeline or stop" });
+  let pages = 0;
+  for (const ws of clients) if (ws.readyState === ws.OPEN) pages++;
+  if (!pages) return void res.status(409).json({ error: "no Ritnag page is open; open the localhost link first" });
+  emit({ type: "director", request: b });
+  res.json({ ok: true, pages });
+});
+
+app.post("/api/director/status", (req, res) => {
+  directorStatus = { ...(req.body as DirectorStatus), updatedAt: Date.now() };
+  res.json({ ok: true });
+});
+
+app.get("/api/director/status", (_req, res) => {
+  res.json(directorStatus ?? { active: false, isolated: false, playing: false, position: null, lastEvent: null, rows: 0, updatedAt: null });
 });
 
 app.post("/api/playback", (req, res) => {

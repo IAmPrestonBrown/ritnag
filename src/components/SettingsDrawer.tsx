@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Snapshot } from "../../shared/events";
 import { post } from "../api";
 import { MicPicker } from "./MicPicker";
@@ -6,7 +6,7 @@ import { SpeakerPicker } from "./SpeakerPicker";
 import { RecordClips } from "./RecordClips";
 import { VoicePanel } from "./VoiceOnboarding";
 import { AdvancedControls, DebugDrawer, SpeakerMap } from "./SessionControls";
-import { DEFAULT_SCRIPT, type useDirector } from "../director";
+import { DEFAULT_SCRIPT, director, loadScript, parseScript, saveScript, useStage } from "../director";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -28,7 +28,6 @@ export function SettingsDrawer({
   micLabel,
   demo,
   onDemo,
-  director,
   onEnroll,
   onClose,
   onError,
@@ -39,7 +38,6 @@ export function SettingsDrawer({
   micLabel: string;
   demo: boolean;
   onDemo: (on: boolean) => void;
-  director: ReturnType<typeof useDirector>;
   onEnroll: () => void;
   onClose: () => void;
   onError: (message: string) => void;
@@ -111,25 +109,7 @@ export function SettingsDrawer({
         </Section>
 
         <Section title="Director (scripted intro)">
-          <p className="muted">
-            Press <kbd>N</kbd> for the next cue (one paragraph). Rows, pop-ups and the imp's lines look live; nothing is heard or
-            decided. Cue {director.cue} of {director.total}.
-          </p>
-          <textarea
-            className="director-script"
-            rows={10}
-            spellCheck={false}
-            value={director.script}
-            onChange={(e) => director.setScript(e.target.value)}
-          />
-          <div className="row">
-            <button className="small" onClick={director.reset}>
-              Restart script
-            </button>
-            <button className="small" onClick={() => director.setScript(DEFAULT_SCRIPT)}>
-              Default script
-            </button>
-          </div>
+          <DirectorControls />
         </Section>
 
         <Section title="Developer">
@@ -138,5 +118,36 @@ export function SettingsDrawer({
         </Section>
       </aside>
     </div>
+  );
+}
+
+/** The hand-driven text script (N = next cue). Timelines and agents use the same commands; see docs/DIRECTOR.md. */
+function DirectorControls() {
+  const stage = useStage();
+  const [script, setScript] = useState(loadScript);
+  const edit = (s: string) => {
+    setScript(s);
+    saveScript(s);
+  };
+  return (
+    <>
+      <p className="muted">
+        Press <kbd>N</kbd> for the next cue (one paragraph). Rows, pop-ups and the imp's lines look live; nothing is heard or
+        decided. Cue {stage.cue} of {parseScript(script).length}
+        {stage.playing ? ` · timeline playing (${Math.round((stage.position ?? 0) / 1000)} s)` : ""}.
+      </p>
+      <textarea className="director-script" rows={10} spellCheck={false} value={script} onChange={(e) => edit(e.target.value)} />
+      <div className="row">
+        <button className="small" onClick={() => director.reset(true)}>
+          Clean stage
+        </button>
+        <button className="small" onClick={() => director.reset(false)}>
+          Back to live
+        </button>
+        <button className="small" onClick={() => edit(DEFAULT_SCRIPT)}>
+          Default script
+        </button>
+      </div>
+    </>
   );
 }

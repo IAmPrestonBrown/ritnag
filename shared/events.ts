@@ -1,4 +1,5 @@
 import type { Alert, Memory, Person, Tone, Utterance } from "./schemas";
+import type { DirectorRequest } from "./director";
 
 export type ImpState = "idle" | "listening" | "thinking" | "speaking" | "alert" | "error";
 
@@ -82,6 +83,8 @@ export type ServerEvent =
   | { type: "speech.ready"; responseId: string; text: string; tone: Tone; generation: number; reaction?: boolean }
   | { type: "alert.created"; alert: Alert; generation: number }
   | { type: "notice"; notice: Notice; generation: number }
+  /** Relayed from POST /api/director to every open page (scripted demo; see docs/DIRECTOR.md). */
+  | { type: "director"; request: DirectorRequest }
   | { type: "error"; message: string; recoverable: boolean };
 
 /** A short pop-up for the room's big moments (toasts at the top of the screen). */

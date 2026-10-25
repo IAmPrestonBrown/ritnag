@@ -10,10 +10,13 @@ export function SideTabs({
   snapshot,
   highlight,
   partial,
+  tab: forced = null,
 }: {
   snapshot: Snapshot;
   highlight: string[];
   partial: { speakerLabel: string; text: string } | null;
+  /** switch to this tab when it changes (the director's `tab` command) */
+  tab?: Tab | null;
 }) {
   const [tab, setTab] = useState<Tab>(() => {
     try {
@@ -23,6 +26,9 @@ export function SideTabs({
       return "memory";
     }
   });
+  useEffect(() => {
+    if (forced) setTab(forced);
+  }, [forced]);
   useEffect(() => {
     try {
       localStorage.setItem(KEY, tab);

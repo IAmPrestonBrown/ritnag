@@ -25,7 +25,7 @@ export function primeAlerts(): void {
 }
 
 /** Two short rising notes: loud enough for headphones, too short to sound like speech to the mic. */
-function chime(): void {
+export function chime(): void {
   try {
     audio ??= new AudioContext();
     const ctx = audio;

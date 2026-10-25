@@ -55,6 +55,15 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 - **Alert chime + system notification** when something escalates, so a focused owner in headphones hears it. Notification permission is asked when focus mode or the mic is turned on. Message text is unit-tested; the chime and notification haven't been triggered by a real alert in a browser yet.
 - Still open: priority people only weigh importance through the prompt; the executor doesn't enforce them.
 
+## Demo video tooling (2026-10-25)
+
+- Pop-up notices (new person, new question, answer repeated, "X detected"): unit-tested; seen in the browser
+  against the dev server.
+- Director mode ([DIRECTOR.md](DIRECTOR.md)): every on-screen element scriptable via a timeline, `window.ritnag`,
+  `POST /api/director` or `npm run director`. Unit-tested. The example timeline was played end to end with the CLI
+  on a headless page, with screenshots checked and status polled. Real-voice (`voice: true`) lines were checked only in the earlier
+  manual-cue run, not in a timeline recording.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**

@@ -2,6 +2,10 @@ import type { Snapshot } from "../../shared/events";
 import { TONE_NOTE_MAX, type Person, type Tone } from "../../shared/schemas";
 import { mostAsked } from "../faq";
 import { post } from "../api";
+import { director } from "../director";
+
+// Scripted (director) rows and alerts have no server state behind them: their buttons act locally or do nothing.
+const scripted = (id: string) => id.startsWith("director-");
 
 const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage", "flirty"];
 
@@ -49,7 +53,7 @@ export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; par
                     <button
                       className="small"
                       title="This was me: re-run as a confirmed owner turn"
-                      onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: true })}
+                      onClick={() => !scripted(u.id) && void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: true })}
                     >
                       that was me
                     </button>
@@ -58,7 +62,7 @@ export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; par
                     <button
                       className="small"
                       title="This wasn't me: re-run as a visitor"
-                      onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: false })}
+                      onClick={() => !scripted(u.id) && void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: false })}
                     >
                       not me
                     </button>
@@ -190,7 +194,9 @@ export function AlertsPanel({ snapshot }: { snapshot: Snapshot }) {
               “{byId.get(a.questionUtteranceId)?.text ?? "…"}”
             </div>
             <div className="muted">{a.reason}</div>
-            <button onClick={() => post("/api/alerts/acknowledge", { alertId: a.id })}>Acknowledge</button>
+            <button onClick={() => (scripted(a.id) ? void director.run({ do: "ack" }) : post("/api/alerts/acknowledge", { alertId: a.id }))}>
+              Acknowledge
+            </button>
           </li>
         ))}
       </ul>
