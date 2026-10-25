@@ -21,7 +21,7 @@ Verified end to end in demo mode (typed input, real Claude, Moss and Cartesia): 
 | Time | Beat | What the room sees and hears |
 | --- | --- | --- |
 | 0:00–0:15 | Preston, headphones on, typing: "I answer once. Ritnag handles the next interruption." | Idle imp, empty memory |
-| 0:15–0:55 | Bob: "Did you push the frontend PR?" Preston slides one ear off: "Yes, it's pushed, waiting on review." Ritnag: "Who was that?" Preston: "That's Bob. He asks everything twice. Talk to him like he's five." | Memory card appears. Bob appears with his tone and tone note |
+| 0:15–0:55 | Bob: "Did you push the frontend PR?" Preston slides one ear off: "Yes, it's pushed, waiting on review." Then, unprompted: "That's Bob. He asks everything twice. Talk to him like he's five." | Memory card appears. Bob appears with his tone and tone note |
 | 0:55–1:20 | Preston on a call, out loud: "OK everyone, CC me on all the outreach emails. Good talk." | Second memory appears, tagged with where it was said |
 | 1:20–1:50 | Bob: "Hey, who do I CC on those emails?" Preston never looks up. Ritnag answers, citing the call | Decision line: `ANSWER · cited m_… · Moss N hits`; Bob's count goes up |
 | 1:50–2:05 | Bob: "Is the frontend code up yet?" Ritnag calls out the repeat | Count climbs |

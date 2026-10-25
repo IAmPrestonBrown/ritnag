@@ -163,9 +163,9 @@ export function App() {
   const receipt = !lastDecision
     ? null
     : lastDecision.action === "ANSWER" && recalled[0]
-      ? `Recalled from memory${asker ? ` for ${asker.name} (asked ${snapshot.counts.byPerson[asker.id] ?? 1}×)` : ""}: “${recalled[0].factualAnswer}”`
+      ? `Recalled from memory${asker ? ` (asked ${snapshot.counts.byPerson[asker.id] ?? 1}×)` : ""}: “${recalled[0].factualAnswer}”`
       : lastDecision.action === "ALERT_OWNER"
-        ? `Escalated to ${snapshot.ownerName}: ${clip(lastDecision.note ?? "needs you", 90)}`
+        ? `Escalated to the owner: ${clip(lastDecision.note ?? "needs you", 90)}`
         : lastDecision.action === "LEARN"
           ? "Learned a new memory"
           : lastDecision.action === "UPDATE_PERSON"

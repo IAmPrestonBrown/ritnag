@@ -22,7 +22,7 @@ Ritnag is a desktop companion with a face. During a session you start, it:
 - **Recognizes paraphrased repeats.** "Is the frontend code up yet?" matches the memory about the frontend PR being pushed. It answers aloud, cites the memory on screen, and counts how many times that person has asked.
 - **Talks to each person the way you told it to.** "That was Bob. Talk to him like he's five." Bob now gets patient, simple, slightly insulting answers. Tones run from friendly to savage, and the owner can add a free-text note on how to treat someone.
 - **Knows what it can't do.** It never invents an answer it has no memory for. Requests to approve, deploy, roll back, pay or promise anything always go to the owner, with an alert, a chime and a system notification.
-- **Shows its work.** Every answer has a receipt: who asked, which memory it used, how many times they've asked, and how long the decision took.
+- **Shows its work.** Every answer has a receipt: which memory it used, how many times that person has asked, and how long the decision took. It never says or shows anyone's name: people only set the tone.
 
 ## How we built it
 
