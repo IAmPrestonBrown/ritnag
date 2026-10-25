@@ -10,6 +10,8 @@ import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./compon
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
 import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
 
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -27,6 +29,28 @@ export function App() {
   const [micOn, setMicOn] = useState(false);
   const [micLabel, setMicLabel] = useState("");
   const [onboarding, setOnboarding] = useState(false);
+  const [demo, setDemo] = useState(() => {
+    if (new URLSearchParams(location.search).has("demo")) return true;
+    try {
+      return localStorage.getItem("imp.demo") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Projector view: D toggles it (ignored while typing in a field).
+  useEffect(() => {
+    try {
+      localStorage.setItem("imp.demo", demo ? "1" : "0");
+    } catch {}
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "d" || e.key === "D") setDemo((d) => !d);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [demo]);
 
   const stopMic = () => {
     mic.current.stop(conn.current?.socket() ?? null);
@@ -115,13 +139,40 @@ export function App() {
   const voice = snapshot.session.voice;
 
   const shownState: ImpState = speaking ? "speaking" : impState;
+  const recalled = lastDecision?.memoryIds.map((id) => snapshot.memories.find((m) => m.id === id)).filter((m) => m !== undefined) ?? [];
+  const asker = lastDecision?.personId ? snapshot.people.find((p) => p.id === lastDecision.personId) : undefined;
+  // Plain-English "why" for the audience; the technical line stays in normal mode.
+  const receipt = !lastDecision
+    ? null
+    : lastDecision.action === "ANSWER" && recalled[0]
+      ? `Recalled from memory${asker ? ` for ${asker.name} (asked ${snapshot.counts.byPerson[asker.id] ?? 1}×)` : ""}: “${recalled[0].factualAnswer}”`
+      : lastDecision.action === "ALERT_OWNER"
+        ? `Escalated to ${snapshot.ownerName}: ${clip(lastDecision.note ?? "needs you", 90)}`
+        : lastDecision.action === "LEARN"
+          ? "Learned a new memory"
+          : lastDecision.action === "UPDATE_PERSON"
+            ? "Updated who's who"
+            : null;
   const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
   const idx = snapshot.index;
 
   return (
-    <main className={`app ${openAlerts ? "has-alert" : ""}`}>
+    <main className={`app ${openAlerts ? "has-alert" : ""} ${demo ? "demo" : ""}`}>
+      {demo ? (
+        <header className="status">
+          <strong>Ritnag</strong>
+          <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>{snapshot.session.listening ? "● listening" : "mic off"}</span>
+          {snapshot.session.focusMode && <span className="pill ok">focus mode</span>}
+          <button className="small exit-demo" onClick={() => setDemo(false)} title="Exit demo mode (D)">
+            ×
+          </button>
+        </header>
+      ) : (
       <header className="status">
         <strong>Ritnag</strong>
+        <button className="small" onClick={() => setDemo(true)} title="Projector view (D)">
+          Demo mode
+        </button>
         <span className={`pill ${connected ? "ok" : "bad"}`}>{connected ? "connected" : "reconnecting…"}</span>
         <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
           mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
@@ -146,7 +197,8 @@ export function App() {
           </button>
         )}
       </header>
-      {idx.lastError && <div className="banner warn">Moss: {idx.lastError}. Local memory is intact; rebuild the index to resync.</div>}
+      )}
+      {idx.lastError && !demo && <div className="banner warn">Moss: {idx.lastError}. Local memory is intact; rebuild the index to resync.</div>}
       <CalibrationBar snapshot={snapshot} />
       <SuggestionBar snapshot={snapshot} />
       {error && (
@@ -159,7 +211,8 @@ export function App() {
         <section className="stage">
           <ImpAvatar state={shownState} mouthOpen={mouthOpen} />
           <p className="caption">{caption ?? "Waiting for an interruption."}</p>
-          {lastDecision && (
+          {demo && receipt && <p className="receipt">{receipt}</p>}
+          {!demo && lastDecision && (
             <p className="decision muted">
               {lastDecision.action}
               {lastDecision.memoryIds.length > 0 && ` · cited ${lastDecision.memoryIds.join(", ")}`}
@@ -179,14 +232,14 @@ export function App() {
         </section>
         <div className="side">
           <MemoryPanel snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} />
-          <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />
-          <SpeakerMap snapshot={snapshot} />
+          {!demo && <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />}
+          {!demo && <SpeakerMap snapshot={snapshot} />}
           <PeoplePanel snapshot={snapshot} />
           <TranscriptPanel snapshot={snapshot} partial={partial} />
         </div>
       </div>
-      <DebugDrawer snapshot={snapshot} />
-      <RecordClips listening={micOn} />
+      {!demo && <DebugDrawer snapshot={snapshot} />}
+      {!demo && <RecordClips listening={micOn} />}
       {onboarding && <VoiceOnboarding ownerName={snapshot.ownerName} onClose={() => setOnboarding(false)} />}
     </main>
   );

@@ -146,9 +146,12 @@ export function MemoryPanel({ snapshot, highlight }: { snapshot: Snapshot; highl
               <div className="meta">
                 {m.kind}
                 {m.context && ` · ${m.context}`} · asked {m.timesAsked}× {m.validUntil && "· expires"}{" "}
-                {m.sourceUtteranceIds.length === 0
-                  ? "· taught in UI"
-                  : `· from “${m.sourceUtteranceIds.map((id) => byId.get(id)?.text).filter(Boolean).join(" / ").slice(0, 80)}”`}
+                {(() => {
+                  if (m.sourceUtteranceIds.length === 0) return "· taught in UI";
+                  // Sources from earlier sessions aren't in the live transcript; say "learned" rather than quote nothing.
+                  const quoted = m.sourceUtteranceIds.map((id) => byId.get(id)?.text).filter(Boolean).join(" / ").slice(0, 80);
+                  return quoted ? `· from “${quoted}”` : "· learned from conversation";
+                })()}
               </div>
             </li>
           ))}

@@ -2,6 +2,19 @@
 
 **Roles:** Preston (owner; headphones playing music from a phone, nothing connected to the demo laptop), Bob (the interrupter), Maya (priority teammate). `OWNER_NAME` in `.env` must match the owner. Memory starts empty: click **Reset demo → Wipe memory + people** and say so.
 
+## Setup (2 min before going on)
+
+1. `npm run dev`, open the printed link in **Chrome** (not Safari).
+2. Press **D** (or the header's **Demo mode** button, or add `?demo=1`) for the projector view: big imp and caption, a plain-English line under the caption saying *why* the imp did something, and no technical clutter. Press **D** again to exit; the typed-input fallback and speaker tools live in the normal view.
+3. Check the mic: the header dropdown (normal view) shows **MacBook … Microphone**, not an iPhone.
+4. **Reset demo → Wipe memory + people** for a clean start. Your voice profile is kept.
+5. **Test voice** once, so the browser allows audio, and check the volume.
+6. **Start listening.**
+
+Recovery during the demo: if a voice is mislabeled, use **that was me / not me** on the transcript line, or the **Who just spoke?** buttons under the imp. Say out loud that it's a manual correction.
+
+Verified end to end in demo mode (typed input, real Claude, Moss and Cartesia): question → learn → "That was Bob" → sarcastic recall with the memory cited → a second person gets a friendly answer → a priority person's rollback request escalates in focus mode.
+
 | Time | Beat | What the room sees and hears |
 | --- | --- | --- |
 | 0:00–0:15 | Preston, headphones on, typing: "I answer once. Ritnag handles the next interruption." | Idle imp, empty memory |

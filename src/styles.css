@@ -145,3 +145,27 @@ input { flex: 1; min-width: 0; }
 @keyframes dart { 0% { transform: translateX(-5px); } 50% { transform: translateX(5px) translateY(-3px); } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px) rotate(-3deg); } 75% { transform: translateX(8px) rotate(3deg); } }
 @media (prefers-reduced-motion: reduce) { .imp * { animation: none !important; } }
+
+/* ---------- demo / projector mode ---------- */
+.demo { max-width: none; padding: 12px 28px 28px; font-size: 18px; }
+.demo .status { font-size: 20px; }
+.demo .status strong { font-size: 26px; }
+.demo .pill { font-size: 15px; padding: 3px 12px; }
+.demo .exit-demo { margin-left: auto; opacity: 0.35; }
+.demo .exit-demo:hover { opacity: 1; }
+.demo .stage { gap: 10px; }
+.demo .layout { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 28px; }
+.demo .imp { width: min(440px, 40vw, 46vh); }
+.demo .caption { font-size: clamp(26px, min(3.2vw, 5vh), 46px); max-width: 26ch; line-height: 1.2; min-height: 0; }
+.demo .receipt { font-size: 18px; color: var(--accent); text-align: center; max-width: 40ch; margin: 0; }
+.demo .controls button { font-size: 16px; padding: 8px 16px; }
+.demo .panel { padding: 14px 18px; }
+.demo .panel h2 { font-size: 16px; }
+.demo .memories .q, .demo .memories .meta { font-size: 15px; }
+.demo .memories .a { font-size: 19px; }
+.demo .transcript li { font-size: 16px; grid-template-columns: 8em 1fr auto; }
+.demo .transcript li:nth-last-child(n + 7) { display: none; } /* last 6 lines only */
+.demo .transcript .row-actions button { opacity: 0.4; } /* kept: the live recovery for a mislabeled voice */
+.demo .person-head strong { font-size: 19px; }
+.demo .tone-note:placeholder-shown { display: none; } /* empty notes are clutter on a projector; filled ones stay */
+@media (max-width: 1100px) { .demo .layout { grid-template-columns: 1fr; } .demo .imp { width: min(360px, 70vw); } }
