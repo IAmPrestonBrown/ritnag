@@ -1,3 +1,5 @@
+import { preferredMic } from "./devices";
+
 /** Same processing for live listening and enrollment, so the profile matches what gets scored. */
 export const MIC_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
@@ -34,6 +36,8 @@ export class MicSource {
   private stream: MediaStream | null = null;
   private nodes: AudioNode[] = [];
   onFrames: ((f: Float32Array) => void) | null = null;
+  /** Label of the mic actually opened (e.g. "MacBook Air Microphone"). */
+  deviceLabel = "";
 
   get sampleRate() {
     return this.ctx?.sampleRate ?? 0;
@@ -45,7 +49,11 @@ export class MicSource {
 
   async start() {
     if (this.ctx) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
+    const mic = await preferredMic();
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { ...MIC_CONSTRAINTS, ...(mic ? { deviceId: { exact: mic.deviceId } } : {}) },
+    });
+    this.deviceLabel = this.stream.getAudioTracks()[0]?.label ?? mic?.label ?? "";
     const ctx = new AudioContext();
     this.ctx = ctx;
     const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));

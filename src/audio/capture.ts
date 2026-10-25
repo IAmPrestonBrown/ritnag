@@ -11,6 +11,10 @@ export class MicCapture {
     return this.mic !== null;
   }
 
+  get deviceLabel() {
+    return this.mic?.deviceLabel ?? "";
+  }
+
   async start(socket: WebSocket) {
     if (this.mic) return;
     const mic = new MicSource();

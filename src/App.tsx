@@ -3,6 +3,7 @@ import type { DecisionSummary, ImpState, ServerEvent, Snapshot } from "../shared
 import { connectEvents, hasToken, post } from "./api";
 import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
+import { MicPicker } from "./components/MicPicker";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
@@ -23,6 +24,7 @@ export function App() {
   const mic = useRef(new MicCapture());
   const conn = useRef<ReturnType<typeof connectEvents> | null>(null);
   const [micOn, setMicOn] = useState(false);
+  const [micLabel, setMicLabel] = useState("");
   const [onboarding, setOnboarding] = useState(false);
 
   const stopMic = () => {
@@ -36,6 +38,7 @@ export function App() {
     try {
       await mic.current.start(socket); // the click also unlocks audio playback
       setMicOn(true);
+      setMicLabel(mic.current.deviceLabel);
     } catch (err) {
       setError(`Microphone: ${(err as Error).message}`);
     }
@@ -122,6 +125,8 @@ export function App() {
         <span className={`pill ${snapshot.session.listening ? "live" : ""}`}>
           mic {snapshot.session.listening ? "LIVE" : snapshot.session.connectionId === null && micOn ? "connecting…" : "off"}
         </span>
+        <MicPicker live={micOn} inUse={micLabel} />
+        {micOn && micLabel && /iphone|ipad/i.test(micLabel) && <span className="pill bad">using {micLabel}</span>}
         <span className="pill">memory: local JSON</span>
         <span className={`pill ${!idx.configured ? "bad" : idx.lastError ? "bad" : idx.ready ? "ok" : ""}`}>
           Moss {!idx.configured ? "not configured" : idx.ready ? `${idx.docCount} docs${idx.pushPending ? " · syncing" : ""}` : "not ready"}
