@@ -669,4 +669,49 @@ describe("script gaps", () => {
     expect(SYSTEM_PROMPT).toContain("Judge each question by its own words");
     expect(SYSTEM_PROMPT).toMatch(/isQuestion reports[^\n]*ask each other are false/);
   });
+
+  describe("backlog: chatter faster than Claude can decide", () => {
+    // Every decision takes 3 s on this clock; turns all arrive at once, so later ones queue.
+    const slowRoom = () => {
+      let clock = 1_000_000;
+      const t = setup(
+        (ctx) => {
+          clock += 3000;
+          return scripted(ctx);
+        },
+        { now: () => clock },
+      );
+      const ingest = (speakerLabel: string, text: string) =>
+        t.session.ingest({ text, speakerLabel, connectionId: TYPED_CONNECTION, providerEventId: `${speakerLabel}:${text}`, source: "typed", asOwner: speakerLabel === "owner" });
+      return { ...t, ingest };
+    };
+
+    it("skips a visitor question that waited too long instead of answering it late", async () => {
+      const { ingest, session, calls } = slowRoom();
+      await ingest("guest-A", "Did anyone check the build?");
+      await ingest("guest-B", "Is the demo at ten?");
+      await ingest("guest-C", "Who has the projector cable?");
+      await session.idle();
+      // the third question would start 6 s late: dropped, not answered stale
+      expect(calls.map((c) => c.utterance.text)).toEqual(["Did anyone check the build?", "Is the demo at ten?"]);
+    });
+
+    it("never skips an owner turn, however late, because that is how it learns", async () => {
+      const { ingest, session, calls } = slowRoom();
+      await ingest("guest-A", "Did anyone check the build?");
+      await ingest("guest-B", "Is the demo at ten?");
+      await ingest("owner", "The build is green and deployed.");
+      await session.idle();
+      expect(calls.map((c) => c.utterance.text)).toContain("The build is green and deployed.");
+    });
+
+    it("reports latency from when the turn arrived, including time spent waiting", async () => {
+      const { ingest, session, events } = slowRoom();
+      await ingest("guest-A", "Did anyone check the build?");
+      await ingest("guest-B", "Is the demo at ten?");
+      await session.idle();
+      const latencies = events.flatMap((e) => (e.type === "decision.completed" ? [e.decision.latencyMs] : []));
+      expect(latencies).toEqual([3000, 6000]);
+    });
+  });
 });
