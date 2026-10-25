@@ -181,7 +181,7 @@ export function AlertsPanel({ snapshot }: { snapshot: Snapshot }) {
   const byId = new Map(snapshot.transcript.map((u) => [u.id, u]));
   return (
     <section className="panel alerts">
-      <h2>Needs you</h2>
+      <h2>Alert: needs you</h2>
       <ul>
         {open.map((a) => (
           <li key={a.id}>

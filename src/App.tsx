@@ -179,15 +179,9 @@ export function App() {
   return (
     <main className={`app ${openAlerts ? "has-alert" : ""} ${demo ? "demo" : ""}`}>
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          Ritnag
-        </div>
-        <span className={`status-chip ${listening ? "live" : ""} ${!connected ? "bad" : ""}`}>
-          <span className="dot" aria-hidden="true" />
-          {statusText}
-        </span>
-        {snapshot.session.focusMode && <span className="status-chip focus">Focus</span>}
+        <div className="brand">Ritnag</div>
+        <span className={`status-chip ${listening ? "live" : ""} ${!connected ? "bad" : ""}`}>{statusText}</span>
+        {snapshot.session.focusMode && <span className="status-chip focus">Focus mode</span>}
         <div className="topbar-end">
           {!voice.enrolled && !demo && (
             <button className="link" onClick={openOnboarding}>
@@ -195,12 +189,12 @@ export function App() {
             </button>
           )}
           <button
-            className={`icon ${needsAttention ? "attention" : ""}`}
+            className={`settings-button ${needsAttention ? "attention" : ""}`}
             onClick={() => setSettings(true)}
             aria-label="Settings"
             title={needsAttention ? "Settings (something needs attention)" : "Settings"}
           >
-            ⚙
+            Settings
           </button>
         </div>
       </header>
@@ -214,8 +208,8 @@ export function App() {
         {error && (
           <div className="banner err">
             <span>{error}</span>
-            <button className="icon small" onClick={() => setError(null)} aria-label="Dismiss">
-              ✕
+            <button className="small" onClick={() => setError(null)}>
+              Dismiss
             </button>
           </div>
         )}
