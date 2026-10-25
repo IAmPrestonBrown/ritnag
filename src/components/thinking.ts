@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 
 /** Shown while a decision is in flight, so a 2-3 s wait reads as work, not lag. */
-export const THINKING_LINES = ["Hmm…", "Checking my notes…", "Digging through memory…", "One sec…"];
-const ROTATE_MS = 900;
+// In character, so the wait reads as the imp working on a comeback, not as lag.
+export const THINKING_LINES = [
+  "Hmm…",
+  "Digging through what you told me…",
+  "Checking who's asked this before…",
+  "Sharpening a comeback…",
+];
+const ROTATE_MS = 1000;
 
 export const thinkingLine = (tick: number) => THINKING_LINES[tick % THINKING_LINES.length]!;
 
