@@ -317,6 +317,38 @@ describe("session pipeline", () => {
     expect(spoken()).toHaveLength(1);
   });
 
+  it("plays an instant reaction for a guest's spoken question before the answer, never for the owner", async () => {
+    const events: ServerEvent[] = [];
+    const store = new JsonMemoryStore(null);
+    const session = new Session(store, async (ctx) => ({ ...base, ...scripted(ctx) }), new FakeIndex(), {
+      ownerName: "Preston",
+      emit: (e) => events.push(e),
+      react: (tone) => ({ key: `${tone}:0`, text: "Ugh." }),
+    });
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    const s = { source: "speech" as const, connectionId: "dg-1", asOwner: false };
+    // nothing in memory yet: no reaction (it would be followed by silence)
+    await session.ingest({ ...s, text: "What's the wifi password", speakerLabel: "S1", providerEventId: "q0" });
+    await session.idle();
+    expect(events.filter((e) => e.type === "speech.ready")).toHaveLength(0);
+    await session.addMemory(
+      { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
+      null,
+    );
+    await session.ingest({ ...s, text: "Uh, is the frontend up yet", speakerLabel: "S1", providerEventId: "q1" });
+    await session.idle();
+    const spoken = events.flatMap((e) => (e.type === "speech.ready" ? [[e.text, !!e.reaction] as const] : []));
+    expect(spoken).toEqual([
+      ["Ugh.", true],
+      ["Yes. Pushed.", false],
+    ]);
+    // the owner talking never triggers one
+    await session.ingest({ ...s, text: "What should we eat later?", speakerLabel: "spk0", providerEventId: "o1" });
+    await session.idle();
+    expect(events.filter((e) => e.type === "speech.ready" && e.reaction)).toHaveLength(1);
+  });
+
   it("a question split in two by transcription gets one reply, not two", async () => {
     const { session, events } = setup(() => ({ action: "ALERT_OWNER", isQuestion: true, isImportant: true, isActionRequest: true, alertReason: "approval" }));
     session.setSpeechConnection("dg-1");

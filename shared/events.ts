@@ -79,7 +79,7 @@ export type ServerEvent =
   | { type: "speaker.bound"; speakerLabel: string; personId: string | null; generation: number }
   | { type: "state.changed"; state: ImpState; caption: string | null; generation: number }
   | { type: "decision.completed"; decision: DecisionSummary; generation: number }
-  | { type: "speech.ready"; responseId: string; text: string; tone: Tone; generation: number }
+  | { type: "speech.ready"; responseId: string; text: string; tone: Tone; generation: number; reaction?: boolean }
   | { type: "alert.created"; alert: Alert; generation: number }
   | { type: "error"; message: string; recoverable: boolean };
 

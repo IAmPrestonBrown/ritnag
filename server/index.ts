@@ -13,6 +13,7 @@ import { synthesizeStream, cartesiaConfigured } from "./providers/cartesia";
 import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
 import { AudioRelay } from "./audioRelay";
+import { ReactionBank } from "./reactions";
 import { speechmaticsConfigured, sttProvider } from "./providers/stt";
 import { speechmaticsVoiceprint } from "./providers/speechmaticsEnroll";
 import { loadWorkspaceToken, tokenMatches } from "./auth";
@@ -88,9 +89,18 @@ const takeSpeech = (responseId: string, text: string, tone: Tone) => {
   return p;
 };
 
+// Instant reactions: pre-synthesized once, served from memory (see server/reactions.ts).
+const reactions = new ReactionBank();
+// when each turn's speech ended, so a reaction can report time-to-first-sound
+const speechEnds = new Map<string, number>();
+
 const emit = (e: ServerEvent) => {
   latency.observe(e, Date.now()); // the timing line prints when playback starts (see /api/playback)
-  if (e.type === "speech.ready") startSynthesis(e.responseId, e.text, e.tone);
+  if (e.type === "transcript.final") {
+    speechEnds.set(e.utterance.id, e.utterance.endedAt);
+    if (speechEnds.size > 200) speechEnds.delete(speechEnds.keys().next().value!);
+  }
+  if (e.type === "speech.ready" && !e.reaction) startSynthesis(e.responseId, e.text, e.tone);
   const msg = JSON.stringify(e);
   for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
 };
@@ -119,9 +129,11 @@ const session = new Session(store, decider, index, {
   emit,
   voiceProfile: () => voice.activeProfile(),
   voiceStatus: () => voice.status(),
+  react: process.env.REACTIONS === "off" ? undefined : (tone) => reactions.pick(tone),
 });
 voice.init();
-void session.rebuildIndex(); // local records -> Moss on every boot
+void session.rebuildIndex();
+void reactions.warm(); // local records -> Moss on every boot
 
 const app = express();
 app.use(express.json({ limit: "64kb" }));
@@ -149,6 +161,8 @@ app.get("/api/speech/stream/:id", async (req, res) => {
   const id = req.params.id;
   const speech = session.speechFor(id);
   if (!speech) return void res.status(410).end();
+  const clip = speech.clip ? reactions.audio(speech.clip) : undefined;
+  if (clip) return void res.setHeader("Content-Type", "audio/mpeg").setHeader("Cache-Control", "no-store").send(clip);
   if (!cartesiaConfigured()) {
     session.playback(id, "ended"); // no audio is coming; leave the thinking state
     return void res.status(503).end();
@@ -320,6 +334,8 @@ app.post("/api/speech", async (req, res) => {
   if (!b) return;
   const speech = session.speechFor(b.responseId);
   if (!speech) return void res.status(410).json({ error: "stale or unknown response" });
+  const clip = speech.clip ? reactions.audio(speech.clip) : undefined;
+  if (clip) return void res.setHeader("Content-Type", "audio/mpeg").send(clip);
   if (!cartesiaConfigured()) {
     session.playback(b.responseId, "ended"); // no audio is coming; leave the thinking state
     return void res.status(503).json({ error: "Cartesia not configured" });
@@ -349,6 +365,9 @@ app.post("/api/playback", (req, res) => {
   if (b.phase === "started") {
     const line = latency.playbackStarted(b.responseId, Date.now());
     if (line) console.log(line);
+    const s = session.speechFor(b.responseId);
+    const end = s?.turnId ? speechEnds.get(s.turnId) : undefined;
+    if (s?.clip && end) console.log(`[latency] first sound "${s.text}" ${((Date.now() - end) / 1000).toFixed(1)}s after the question ended`);
   }
   session.playback(b.responseId, b.phase);
   res.json({ ok: true });

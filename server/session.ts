@@ -14,6 +14,8 @@ const SEARCH_TOP_K = 8;
 const CONTINUATION_MS = 2500;
 /** Optional "ask the owner" deflections: at most one per person in this window. */
 const DEFLECT_COOLDOWN_MS = 30_000;
+/** Moss score at which a stored memory probably answers the question (so a reaction will be followed by one). */
+const REACT_MIN_SCORE = 0.2;
 /** Comebacks to banter: at most one per person in this window. */
 const BANTER_COOLDOWN_MS = 15_000;
 const FALLBACK_MEMORIES = 50;
@@ -63,6 +65,10 @@ interface PendingResponse {
   tone: Tone;
   generation: number;
   createdAt: number;
+  /** A pre-synthesized instant reaction (key into the reaction bank) rather than generated speech. */
+  clip?: string;
+  /** For reactions: the turn being reacted to (time-to-first-sound logging). */
+  turnId?: string;
 }
 
 export interface SessionOptions {
@@ -75,6 +81,8 @@ export interface SessionOptions {
   /** Usable owner voice profile, or null (not enrolled / model not ready): fall back to calibration. */
   voiceProfile?: () => ActiveVoiceProfile | null;
   voiceStatus?: () => VoiceStatus;
+  /** Instant in-character reaction for a tone, played while a guest's question is being decided. */
+  react?: (tone: Tone) => { key: string; text: string } | null;
 }
 
 const NO_VOICE: VoiceStatus = {
@@ -337,10 +345,11 @@ export class Session {
       this.store.recentUtterances(this.id, RECENT_TURNS),
       this.askedBy(role === "visitor" ? utterance.personId : null),
     ]);
-    const query = role === "owner" && this.pendingQuestion ? `${this.pendingQuestion.text}\n${utterance.text}` : utterance.text;
-    const retrieval = await this.retrieve(query);
-    const memories = retrieval.memories;
     const speaker = utterance.personId ? people.find((p) => p.id === utterance.personId) ?? null : null;
+    const query = role === "owner" && this.pendingQuestion ? `${this.pendingQuestion.text}\n${utterance.text}` : utterance.text;
+    const retrieval = await this.retrieve(query); // in-process search: milliseconds
+    const memories = retrieval.memories;
+    this.reactInstantly(utterance, role, speaker, generation, memories[0]?.score ?? null);
     const ctx: DecisionContext = {
       role,
       ownerName: this.opts.ownerName,
@@ -409,7 +418,7 @@ export class Session {
       const banter = effect.banter === true;
       const k = `${banter ? "banter" : "deflect"}|${key(utterance.connectionId, utterance.speakerLabel)}`;
       const last = this.lastDeflection.get(k) ?? -Infinity;
-      if (this.isSpeaking() || this.now() - last < (banter ? BANTER_COOLDOWN_MS : DEFLECT_COOLDOWN_MS)) {
+      if (this.isSpeakingReply() || this.now() - last < (banter ? BANTER_COOLDOWN_MS : DEFLECT_COOLDOWN_MS)) {
         console.log(`[imp] held back a ${banter ? "comeback" : "deflection"}: "${spoken.slice(0, 50)}"`);
         spoken = null;
       } else this.lastDeflection.set(k, this.now());
@@ -647,16 +656,36 @@ export class Session {
     return this.queueSpeech(text, this.generation, "sarcastic");
   }
 
-  private queueSpeech(text: string, generation: number, tone: Tone) {
+  /**
+   * The moment a guest finishes a question, play a short pre-made noise in their tone ("Ugh.",
+   * "Oh, here we go.") so there's no dead air while the answer is decided. Not over other speech.
+   */
+  private reactInstantly(u: Utterance, role: "owner" | "visitor", speaker: Person | null, generation: number, topScore: number | null) {
+    if (role !== "visitor" || !this.opts.react || u.source !== "speech" || this.isSpeaking()) return;
+    if (!looksLikeQuestion(u.text) && !REQUEST.test(u.text)) return;
+    // Only when an answer (or an escalation) is likely: "Hmm." followed by silence is worse than nothing.
+    const likelyAnswer = topScore !== null && topScore >= REACT_MIN_SCORE;
+    if (!likelyAnswer && !REQUEST.test(u.text) && !this.focusMode) return;
+    const tone: Tone = speaker?.tone ?? "neutral";
+    const r = this.opts.react(tone);
+    if (r) this.queueSpeech(r.text, generation, tone, { clip: r.key, turnId: u.id });
+  }
+
+  /** Speaking or about to speak something other than an instant reaction. */
+  private isSpeakingReply() {
+    return this.speakingResponseId !== null && !this.responses.get(this.speakingResponseId)?.clip;
+  }
+
+  private queueSpeech(text: string, generation: number, tone: Tone, reaction?: { clip: string; turnId: string }) {
     const responseId = randomUUID();
-    this.responses.set(responseId, { text, tone, generation, createdAt: this.now() });
+    this.responses.set(responseId, { text, tone, generation, createdAt: this.now(), ...reaction });
     // Block mic input from the moment audio is requested, not just once it plays.
     this.speakingResponseId = responseId;
     const guard = this.opts.speechGuardMs ?? 15_000;
     setTimeout(() => {
       if (this.speakingResponseId === responseId) this.speakingResponseId = null;
     }, guard).unref?.();
-    this.opts.emit({ type: "speech.ready", responseId, text, tone, generation });
+    this.opts.emit({ type: "speech.ready", responseId, text, tone, generation, ...(reaction ? { reaction: true } : {}) });
     return responseId;
   }
 
@@ -665,10 +694,10 @@ export class Session {
     return this.speechFor(responseId)?.text ?? null;
   }
 
-  speechFor(responseId: string): { text: string; tone: Tone } | null {
+  speechFor(responseId: string): { text: string; tone: Tone; clip?: string; turnId?: string } | null {
     const r = this.responses.get(responseId);
     if (!r || r.generation !== this.generation) return null;
-    return { text: r.text, tone: r.tone };
+    return { text: r.text, tone: r.tone, clip: r.clip, turnId: r.turnId };
   }
 
   playback(responseId: string, phase: "started" | "ended") {
@@ -776,6 +805,12 @@ const OWNER_CUE =
   /\b(that was|this is|is my|be (nice|mean|sarcastic|nicer|meaner)|roast|tease|tone|priority|annoyed|pissed|stupid|sucks|done with|remember|heads up|fyi|note that)\b/i;
 
 /** Cheap pre-filter: does this turn need a decision call at all? Errs toward yes. */
+/** Question-shaped, allowing for leading filler and a missing "?". */
+export function looksLikeQuestion(text: string): boolean {
+  const core = text.trim().replace(LEAD_FILLER, "");
+  return text.includes("?") || QUESTION_START.test(core) || QUESTION_ANYWHERE.test(core);
+}
+
 export function needsDecision(u: Utterance, questionPending: boolean): boolean {
   if (u.source === "typed") return true; // typed input is deliberate
   const text = u.text.trim();
@@ -785,9 +820,7 @@ export function needsDecision(u: Utterance, questionPending: boolean): boolean {
   const words = core.split(/\s+/).filter(Boolean).length;
   // Question-shaped turns always go through, whoever they're labeled as: labels are unreliable,
   // and a "visitor" question mislabeled as the owner must still be heard.
-  const questionish =
-    text.includes("?") || QUESTION_START.test(core) || QUESTION_ANYWHERE.test(core) || REQUEST.test(text) || SELF_INTRO.test(text);
-  if (questionish) return true;
+  if (looksLikeQuestion(text) || REQUEST.test(text) || SELF_INTRO.test(text)) return true;
   // Visitor turns run in their own lane and block nothing, so only drop tiny fragments ("Uh", "Yeah").
   if (!(u.isOwner && u.ownerCertain)) return words >= 3;
   // Owner turns are decided one at a time, so owner filler stays out of the queue.
