@@ -23,7 +23,6 @@ export function PrimaryControls({
   return (
     <div className="controls">
       <button className={`primary ${micOn ? "live" : ""}`} onClick={onToggleMic}>
-        <span className="dot" aria-hidden="true" />
         {micOn ? "Stop listening" : "Start listening"}
       </button>
       <button

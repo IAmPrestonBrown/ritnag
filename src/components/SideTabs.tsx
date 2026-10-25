@@ -43,7 +43,7 @@ export function SideTabs({
         {tabs.map(([id, label, count]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
             {label}
-            {count !== null && count > 0 && <span className="badge">{count}</span>}
+            {count !== null && count > 0 && <span className="tab-count"> ({count})</span>}
           </button>
         ))}
       </div>
