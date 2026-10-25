@@ -47,14 +47,16 @@ Per-turn embeddings on one laptop mic don't separate the owner from teammates: l
 - **Accept:** a table in `docs/SPEAKER_ID.md` showing correct-speaker rate on about 2 minutes of natural owner+Leon conversation recorded on the demo mic, plus a decision.
 - **Test:** `npx tsx scripts/bakeoff/run.ts data/recordings/<set>`.
 
+**Status:** recorder ([#14](https://github.com/IAmPrestonBrown/ritnag/pull/14)) and runner (`npm run bakeoff`, see `docs/SPEAKER_ID.md` §12) are built; the real-recording run is pending.
+
 ### P2: Speechmatics realtime provider (if P1 says so)
 - **Do:** put Deepgram and Speechmatics behind one interface (`STT_PROVIDER=deepgram|speechmatics`) producing the same `AssembledTurn` stream into `Session.ingest`. Map enrolled-speaker labels to `speakerLabel` and set the owner from the enrolled `owner` label.
 - **Accept:** a live run where one spoken question gets exactly one answer, with no feedback loop. Owner turns are attributed correctly in the P1 conversation set at the rate P1 measured.
 - **Test:** unit tests that replay recorded Speechmatics messages (fixtures in `tests/fixtures/`) through the mapper; `npm run check`.
 
-### P3: Enrolled visitors
-- **Do:** enroll teammates (Bob/Leon/Maya…) as known speakers, so visitor names bind automatically. Mark them as voice-identified, distinct from manual binding in the UI.
-- **Accept:** in a live run, an enrolled teammate's repeat question is answered with their name and tone, with no manual binding.
+### P3: Visitors learned over time, with a certainty gate (design: `docs/SPEAKER_ID.md` §11)
+- **Do:** after "That was Bob", Bob's bound turns seed his voiceprint; confident later matches extend it; voiceprints persist. Every visitor identification gets a certainty (similarity + margin over runner-up + sample count + Speechmatics agreement). Below the cutoff → generic answer (no name, neutral tone). Show voice-identified people distinctly from manual bindings.
+- **Accept:** in a live run, Bob is named automatically on later repeat questions after being introduced once, and a stranger is never named.
 
 ### P4: Echo check
 - **Accept:** a test or recorded proof that the imp's own TTS playback never becomes an owner turn and never reaches the decider.
