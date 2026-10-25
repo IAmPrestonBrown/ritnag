@@ -1,10 +1,5 @@
-## Task
-<!-- e.g. R1 demo mode (closes #N). One task per PR. -->
+## What and why
 
-## What changed
-
-## Touches other areas
-<!-- Any file outside your stream's ownership (docs/WORKSTREAMS.md), and why. "None" if none. -->
 
 ## Verified
 - [ ] `git pull origin main` done, no conflicts left

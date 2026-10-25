@@ -29,10 +29,6 @@ Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store
 
 Enroll the owner's voice from the UI (**Enroll voice**, about 90 s) before demoing anything that learns from speech.
 
-## Team workflow
-
-Three parallel workstreams; see **[docs/WORKSTREAMS.md](docs/WORKSTREAMS.md)** for owners, file ownership, tasks and the timeline, and [CLAUDE.md](CLAUDE.md) for the rules every Claude Code session follows.
-
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md)
