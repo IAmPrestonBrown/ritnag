@@ -21,7 +21,9 @@ export function SessionControls({
       <button className={micOn ? "on" : ""} onClick={onToggleMic}>
         {micOn ? "Stop listening" : "Start listening"}
       </button>
-      {snapshot.session.listening && <button onClick={() => post("/api/owner/calibrate")}>Recalibrate owner</button>}
+      {snapshot.session.listening && !snapshot.session.voice.active && (
+        <button onClick={() => post("/api/owner/calibrate")}>Recalibrate owner</button>
+      )}
       <button
         className={snapshot.session.focusMode ? "on" : ""}
         onClick={() => post("/api/focus", { focusMode: !snapshot.session.focusMode })}
@@ -195,7 +197,7 @@ export function SuggestionBar({ snapshot }: { snapshot: Snapshot }) {
 
 /** Live speaker labels for this connection. Manual mapping is a recovery control, not voice recognition. */
 export function SpeakerMap({ snapshot }: { snapshot: Snapshot }) {
-  const { speechLabels, connectionId, ownerSpeakerLabel, bindings } = snapshot.session;
+  const { speechLabels, connectionId, ownerSpeakerLabel, bindings, voice } = snapshot.session;
   if (!connectionId || speechLabels.length === 0) return null;
   const valueFor = (label: string) =>
     label === ownerSpeakerLabel ? "__owner" : bindings[`${connectionId}|${label}`] ?? "";
@@ -213,7 +215,8 @@ export function SpeakerMap({ snapshot }: { snapshot: Snapshot }) {
             <span>{label}</span>
             <select value={valueFor(label)} onChange={(e) => void change(label, e.target.value)}>
               <option value="">unknown</option>
-              <option value="__owner">{snapshot.ownerName} (owner)</option>
+              {/* With a voice profile, owner authority comes from the voice check, never from a label. */}
+              {!voice.active && <option value="__owner">{snapshot.ownerName} (owner)</option>}
               {snapshot.people.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -223,7 +226,10 @@ export function SpeakerMap({ snapshot }: { snapshot: Snapshot }) {
           </li>
         ))}
       </ul>
-      <p className="muted small-print">Labels come from live diarization and reset when the mic reconnects.</p>
+      <p className="muted small-print">
+        Labels come from live diarization and reset when the mic reconnects.
+        {voice.active && ` ${snapshot.ownerName} is recognized by voice; labels here are for visitors.`}
+      </p>
     </section>
   );
 }

@@ -78,7 +78,7 @@ export function buildUserMessage(ctx: DecisionContext): string {
     },
     speaker:
       ctx.role === "owner"
-        ? { owner: true }
+        ? { owner: true, verified: ctx.identityCertain }
         : ctx.speaker
           ? { name: ctx.speaker.name, relationship: ctx.speaker.relationship, tone: ctx.speaker.tone, priority: ctx.speaker.priority }
           : { unidentified: true },
@@ -102,7 +102,9 @@ export function buildUserMessage(ctx: DecisionContext): string {
     })),
     transcript: ctx.recent.map((u) => ({
       utteranceId: u.id,
-      speaker: u.isOwner ? `${ctx.ownerName} (owner)` : person(u.personId) ?? `unidentified ${u.speakerLabel}`,
+      speaker: u.isOwner
+        ? `${ctx.ownerName} (owner${u.ownerCertain && !u.ownerSuspect ? "" : ", unverified"})`
+        : person(u.personId) ?? `unidentified ${u.speakerLabel}`,
       text: u.text,
     })),
   };

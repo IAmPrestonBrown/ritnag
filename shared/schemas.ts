@@ -12,6 +12,13 @@ export interface Person {
   ownerConfiguredAt: number;
 }
 
+/**
+ * Why a turn was (or wasn't) attributed to the owner. typed/manual = explicit UI choice; voice = scored
+ * against the enrolled profile; stickiness = short/borderline turn carried by the diarization label;
+ * label = calibrated diarization label (no voice profile); none = not the owner.
+ */
+export type OwnerBasis = "typed" | "manual" | "voice" | "stickiness" | "label" | "none";
+
 export interface Utterance {
   id: string;
   sessionId: string;
@@ -23,6 +30,11 @@ export interface Utterance {
   startedAt: number;
   endedAt: number;
   isOwner: boolean;
+  /** Owner turns that may teach facts or change people. Uncertain owner turns are never learned from. */
+  ownerCertain: boolean;
+  ownerBasis: OwnerBasis;
+  /** Voice similarity to the owner profile, when the turn was scored. */
+  ownerScore: number | null;
   source: "typed" | "speech";
   /** Labeled as the owner, but the wording suggests someone else (e.g. it addresses the owner by name). */
   ownerSuspect?: boolean;
@@ -160,6 +172,17 @@ export const TeachRequest = z.object({
 export const OwnerSpeakerRequest = z.object({ speakerLabel: z.string().nullable() });
 export const ReattributeRequest = z.object({ utteranceId: z.string(), asOwner: z.boolean() });
 export const SuggestionRequest = z.object({ connectionId: z.string(), speakerLabel: z.string(), accept: z.boolean() });
+export const EnrollFinishRequest = z.object({ enrollmentId: z.string() });
+export const AudioQuery = z.object({
+  sampleRate: z.coerce.number().int().min(8000).max(96000),
+});
+export const EnrollSampleQuery = AudioQuery.extend({
+  enrollmentId: z.string(),
+  prompt: z.coerce.number().int().min(0).max(31),
+});
+export const VerifyTestQuery = AudioQuery.extend({
+  purpose: z.enum(["self", "impostor", "check"]).default("check"),
+});
 export const FocusRequest = z.object({ focusMode: z.boolean() });
 export const AckRequest = z.object({ alertId: z.string() });
 export const SpeechRequest = z.object({ responseId: z.string() });

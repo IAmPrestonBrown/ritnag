@@ -1,6 +1,10 @@
 # Speaker identification: owner voice onboarding + combined signals
 
-**Status:** design, ready to build. **Owner of this work:** teammate (onboarding + verifier). The turn-splitting fix in §7 is tracked separately.
+**Status:** built (2026-10-24). §4 onboarding, §5 audio path + verifier, and the §3 resolver landed on top of the §6 wording veto and the §7 turn-splitting fix. §9 is partly verified (see the end).
+
+**Engine chosen:** WeSpeaker ResNet34 (VoxCeleb, English) run in-process through `sherpa-onnx-node` (pinned 1.13.8). It wasn't on the candidate list in §5, but it beat all three on setup risk: one npm package plus a 26 MB model that downloads and checksums itself (`npm run voice:model` to prefetch). No Python sidecar, no access key, no Hugging Face approval. Measured ~35 ms per 2–4 s turn on an M-series laptop, well under the 150 ms target. Default thresholds: cosine accept ≥ 0.62, reject ≤ 0.45, tightened per room by the impostor check. The `SpeakerVerifier` interface (`server/voice/verifier.ts`) keeps other engines pluggable.
+
+**Code map:** `server/voice/`: `pcm.ts` (ring buffer, take quality checks), `verifier.ts` (interface, threshold calibration), `sherpa.ts` (engine + model download), `resolver.ts` (§3), `ownerVoice.ts` (profile, enrollment, per-turn scoring), `routes.ts` (§4 endpoints). Client: `src/audio/pcm.ts` (AudioWorklet), `src/components/VoiceOnboarding.tsx`. Utterances carry `ownerCertain` / `ownerBasis` / `ownerScore`. Uncertain owner turns go to the decider as the owner with `identityCertain=false`, and the executor refuses `LEARN`/`UPDATE_PERSON` for them; the existing "that was me" re-attribution is the confirm path (it sets `ownerBasis: "manual"`, which the wording veto never overrides).
 
 **Decision (2026-10-24):** the original plan ruled out persistent voice enrollment. We are reversing that for the **owner only**, because live diarization alone mislabeled people constantly in a real test (see §1). Visitors still get session-only handling. Storage is local, embedding-only, deletable, and opt-in.
 
@@ -182,6 +186,17 @@ Record fixtures once, in the real venue if possible: the owner plus 2 teammates,
 - [ ] Delete profile → file gone, owner verification off, UI says so.
 - [ ] Per-turn verification latency ≤ 150 ms (log it alongside the existing STT/decision/TTS timings).
 - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+
+### Verification status (2026-10-24)
+
+Done:
+- Every rule above has a unit or session test (`tests/voice.test.ts`; "owner voice verification" in `tests/session.test.ts`): "How old are you, Preston?" is vetoed even on a false voice accept and doesn't make the label sticky; "This is Preston, remember…" creates no memory; short turns ride on stickiness but are never learned until "that was me"; "that was me" beats the veto on the re-run; delete-profile turns verification off; a calibrated label grants nothing once a profile is active.
+- Real engine over HTTP against the dev server, with macOS TTS voices as stand-in speakers: enroll (8 takes) → finish → verify-test → impostor → delete. ~60 ms per verify request; ring-buffer slice scoring 16–70 ms. The enrolled voice scored 0.95 on fresh audio; a different-gender voice 0.55–0.59 (uncertain at defaults); a same-synthesizer voice 0.88, which the impostor check flagged `not_separable`, tightening thresholds to the cap. TTS voices are a poor proxy for people.
+- `npm run typecheck`, `npm test`, `npm run build` pass.
+
+Still open:
+- [ ] Real-people fixtures in the venue (owner + 2 teammates, 20 turns each) to measure false-accept/false-reject and pick final thresholds.
+- [ ] Live mic path end to end (needs `DEEPGRAM_API_KEY`): AudioWorklet PCM → Deepgram `linear16` → per-turn verify, and TTS playback never scoring as the owner.
 
 ## 10. Honest limits to state in the demo and the Devpost
 

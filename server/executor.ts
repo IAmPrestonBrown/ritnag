@@ -4,7 +4,7 @@ const TRANSIENT_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_SPOKEN_CHARS = 280;
 
 export type Effect =
-  | { kind: "wait"; spokenText: string | null; isQuestion: boolean }
+  | { kind: "wait"; spokenText: string | null; isQuestion: boolean; blocked?: string }
   | { kind: "answer"; memoryIds: string[]; spokenText: string }
   | { kind: "alert"; reason: string; spokenText: string | null }
   | {
@@ -24,6 +24,8 @@ export type Effect =
 
 export interface ExecContext {
   role: "owner" | "visitor";
+  /** Owner turn verified by voice or an explicit UI action (docs/SPEAKER_ID.md §3). */
+  ownerCertain: boolean;
   utteranceId: string;
   speakerPersonId: string | null;
   ownerPersonId: string | null;
@@ -75,6 +77,17 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         // LEARN / UPDATE_PERSON from a guest are never honored.
         return wait();
     }
+  }
+
+  // An owner turn we aren't sure about teaches nothing, changes no one, and says nothing (no roasting
+  // the wrong person). The transcript's "that was me" re-runs it as a confirmed owner turn.
+  if (!ctx.ownerCertain) {
+    return {
+      kind: "wait",
+      spokenText: null,
+      isQuestion: d.isQuestion,
+      blocked: d.action === "LEARN" || d.action === "UPDATE_PERSON" ? `${d.action} held: owner not verified` : undefined,
+    };
   }
 
   switch (d.action) {

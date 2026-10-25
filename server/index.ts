@@ -14,6 +14,9 @@ import { MossIndex } from "./providers/moss";
 import { deepgramConfigured } from "./providers/deepgram";
 import { AudioRelay } from "./audioRelay";
 import { loadWorkspaceToken, tokenMatches } from "./auth";
+import { OwnerVoice } from "./voice/ownerVoice";
+import { SherpaVerifier } from "./voice/sherpa";
+import { voiceRoutes } from "./voice/routes";
 import type { Health, ServerEvent } from "../shared/events";
 import {
   AckRequest,
@@ -72,7 +75,20 @@ const decider: Decider = async (ctx) => {
 };
 
 const index = new MossIndex(() => void session.broadcast());
-const session = new Session(store, decider, index, { ownerName: OWNER_NAME, emit });
+// Owner voice profile: local, embedding-only, deletable (docs/SPEAKER_ID.md).
+const voice = new OwnerVoice(
+  new SherpaVerifier(resolve(root, "data/models")),
+  resolve(root, "data/owner-voice.json"),
+  OWNER_NAME,
+  () => void session.broadcast(), // first called from voice.init(), after session exists
+);
+const session = new Session(store, decider, index, {
+  ownerName: OWNER_NAME,
+  emit,
+  voiceProfile: () => voice.activeProfile(),
+  voiceStatus: () => voice.status(),
+});
+voice.init();
 void session.rebuildIndex(); // local records -> Moss on every boot
 
 const app = express();
@@ -88,6 +104,7 @@ const health = (): Health => ({
     moss: index.getStatus().configured,
   },
   model: anthropicModel(),
+  voice: { enrolled: voice.status().enrolled, active: voice.activeProfile() !== null },
 });
 app.get("/api/health", (_req, res) => {
   res.json(health());
@@ -209,6 +226,8 @@ app.post("/api/identity/suggestion", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.use("/api/voice", voiceRoutes(voice));
+
 app.post("/api/session/stop", async (_req, res) => {
   relay?.stop();
   session.setSpeechConnection(null);
@@ -258,7 +277,7 @@ const server = createServer(app);
 // One live mic at a time; a new Start replaces the old stream (and its speaker labels).
 let relay: AudioRelay | null = null;
 
-// Events go out as JSON text; the browser sends JSON control messages and binary WebM/Opus audio.
+// Events go out as JSON text; the browser sends JSON control messages and binary mono PCM16 audio.
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", "http://localhost");
@@ -272,21 +291,30 @@ server.on("upgrade", (req, socket, head) => {
     let mine: AudioRelay | null = null;
     ws.on("message", (data, isBinary) => {
       if (isBinary) return void mine?.audio(data as Buffer);
-      let msg: { type?: string };
+      let msg: { type?: string; encoding?: string; sampleRate?: number };
       try {
         msg = JSON.parse(data.toString());
       } catch {
         return;
       }
+      const fail = (message: string) => ws.send(JSON.stringify({ type: "error", message, recoverable: true } satisfies ServerEvent));
       if (msg.type === "mic.start") {
-        if (!deepgramConfigured()) {
-          return void ws.send(JSON.stringify({ type: "error", message: "Deepgram not configured (DEEPGRAM_API_KEY).", recoverable: true } satisfies ServerEvent));
+        if (!deepgramConfigured()) return void fail("Deepgram not configured (DEEPGRAM_API_KEY).");
+        const rate = msg.sampleRate;
+        if (msg.encoding !== "linear16" || !Number.isInteger(rate) || rate! < 8000 || rate! > 96000) {
+          return void fail("Unsupported mic format; reload the page.");
         }
         relay?.stop();
-        mine = relay = new AudioRelay(session, emit, (ended) => {
-          if (relay === ended) relay = null;
-          if (mine === ended) mine = null;
-        });
+        mine = relay = new AudioRelay(
+          session,
+          emit,
+          (ended) => {
+            if (relay === ended) relay = null;
+            if (mine === ended) mine = null;
+          },
+          rate!,
+          voice,
+        );
       } else if (msg.type === "mic.stop") {
         mine?.stop();
       }
@@ -313,5 +341,6 @@ server.listen(PORT, HOST, () => {
   console.log(`\n  Imp running → http://localhost:${PORT}/#token=${token}`);
   console.log(`  storage: local JSON (authoritative) · index: Moss ${h.providers.moss ? "configured" : "NOT configured"}`);
   console.log(`  providers: ${Object.entries(h.providers).map(([k, v]) => `${k}=${v ? "ok" : "missing"}`).join(" ")}`);
-  console.log(`  model: ${h.model}\n`);
+  console.log(`  model: ${h.model}`);
+  console.log(`  owner voice: ${h.voice.enrolled ? "enrolled (loading model…)" : "not enrolled — enroll from the UI"}\n`);
 });

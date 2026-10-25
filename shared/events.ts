@@ -11,6 +11,26 @@ export interface IndexStatus {
   pushPending: boolean;
 }
 
+export interface VoiceThresholds {
+  accept: number;
+  reject: number;
+}
+
+/** Owner voice profile state for the UI. Never includes the embedding. */
+export interface VoiceStatus {
+  enrolled: boolean;
+  /** Model loaded and profile usable; false while downloading or after an error. */
+  active: boolean;
+  model: "idle" | "loading" | "ready" | "error";
+  error: string | null;
+  engine: string;
+  createdAt: number | null;
+  thresholds: VoiceThresholds | null;
+  minScorableSec: number | null;
+  calibration: { enrollSelfScore: number; selfScore: number | null; impostorScore: number | null } | null;
+  enrolling: boolean;
+}
+
 export interface Snapshot {
   storage: "local-json";
   index: IndexStatus;
@@ -28,6 +48,7 @@ export interface Snapshot {
     /** "Is spk2 Bob?": a visitor named themself; needs one click to apply. */
     suggestions: { connectionId: string; speakerLabel: string; personId: string; name: string }[];
     speechLabels: string[]; // labels heard on the current speech connection
+    voice: VoiceStatus;
   };
   people: Person[];
   memories: Memory[];
@@ -65,4 +86,5 @@ export interface Health {
   storage: "local-json";
   providers: { anthropic: boolean; deepgram: boolean; cartesia: boolean; moss: boolean };
   model: string;
+  voice: { enrolled: boolean; active: boolean };
 }
