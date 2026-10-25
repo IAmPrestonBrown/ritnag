@@ -30,7 +30,7 @@ Edit freely inside your area. Outside it, follow the "Touches other areas" rule 
 
 | Area | Owner |
 | --- | --- |
-| `server/audioRelay.ts`, `server/turnAssembler.ts`, `server/providers/deepgram.ts`, new `server/providers/speechmatics.ts`, `server/voice/**`, `src/audio/**`, `src/components/VoiceOnboarding.tsx`, `src/components/MicPicker.tsx`, `tests/voice.test.ts`, `tests/turnAssembler.test.ts`, `scripts/bakeoff/**` | **Preston** |
+| `server/audioRelay.ts`, `server/turnAssembler.ts`, `server/providers/deepgram.ts`, new `server/providers/speechmatics.ts`, `server/voice/**`, `src/audio/**`, `src/components/VoiceOnboarding.tsx`, `src/components/MicPicker.tsx`, `src/components/RecordClips.tsx`, `tests/voice.test.ts`, `tests/recordings.test.ts`, `tests/turnAssembler.test.ts`, `scripts/bakeoff/**` | **Preston** |
 | `src/App.tsx`, `src/components/**` (except the two above), `src/styles.css`, `src/main.tsx`, `index.html`, new `tests/ui/**` | **Ritvik** |
 | `server/decision.ts` (prompt text and `buildUserMessage`), `server/providers/cartesia.ts` (delivery table only), new `eval/**`, new `scripts/seed.ts`, `docs/DEVPOST.md`, `docs/DEMO.md`, `docs/CALHACKS.md`, new `assets/**` | **Leon** |
 | **Shared hot spots** (`shared/*.ts`, `server/session.ts`, `server/executor.ts`, `server/index.ts`, `package.json`): small additive changes only, called out in the PR. Preston reviews these closely. | everyone |
