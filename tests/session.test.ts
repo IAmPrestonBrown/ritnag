@@ -310,6 +310,24 @@ describe("session pipeline", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("a reply whose audio never plays (TTS failed) leaves thinking, and a second 'ended' is a no-op", async () => {
+    const { session, say, events } = setup(scripted);
+    await session.addMemory(
+      { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
+      null,
+    );
+    await say("guest-A", "Is the frontend up?");
+    const states = () => events.flatMap((e) => (e.type === "state.changed" ? [e.state] : []));
+    expect(states().at(-1)).toBe("thinking"); // waiting on audio that will never start
+    const ready = events.find((e) => e.type === "speech.ready");
+    const responseId = ready && ready.type === "speech.ready" ? ready.responseId : "";
+    session.playback(responseId, "ended"); // what /api/speech and the player send on failure
+    expect(states().at(-1)).toBe("idle");
+    const count = states().length;
+    session.playback(responseId, "ended"); // both sides may report the same failure
+    expect(states()).toHaveLength(count);
+  });
+
   it("a response from before Reset cannot be played", async () => {
     const { session, say, events } = setup(scripted);
     await session.addMemory(
