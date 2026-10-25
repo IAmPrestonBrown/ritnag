@@ -63,6 +63,7 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 - [x] Turn-splitting fix: speaker by majority speech time, flicker absorbed, splits only on real handoffs (`docs/SPEAKER_ID.md` §7).
 - [x] Latency trace: one `[latency]` server log line per spoken reply, splitting end of question → first audio into stt / decide / tts / play against the 4 s target (`server/latency.ts`). Speech turns now carry real wall-clock `startedAt`/`endedAt` from the PCM stream clock. **Tested with a scripted Session only; not yet run live.** Live run procedure and score sheets: `docs/REHEARSAL.md`.
 - [ ] Slice 3: live Bob scene end to end by voice.
+  - Synthetic voice path verified with `npm run smoke:voice` (2026-10-24): Cartesia-spoken questions streamed into `/api/audio` → Deepgram → assembler → Claude → Cartesia. Paraphrase → `ANSWER` (4.0 s end to end), rollback request → `ALERT_OWNER` (3.3 s). Moss off. **Not a live test:** no real mic, room echo, owner voice ID or real diarization.
 - [x] Slice 4 logic, verified on real Haiku + Moss (typed): the owner states meeting facts in passing ("demoing at 10:30, table 42, Maya presents architecture"), and later paraphrases are answered from them. The executor now enforces the plan's routing:
   - approval/commit requests always alert;
   - other unknown questions alert only in focus mode;

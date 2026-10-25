@@ -10,6 +10,8 @@ For the voice runs that tests can't cover. Fill in the tables as you go and comm
 - [ ] Desktop Chrome, page clicked once (unlocks audio). **Test voice** plays.
 - [ ] `.env` has all four providers; the server banner shows `anthropic=ok deepgram=ok cartesia=ok moss=ok`.
 - [ ] `npm run voice:model` already ran (don't download the model on venue Wi-Fi).
+- [ ] `npm run smoke:voice` passes on this laptop and network (both lines `PASS`), before anyone takes the mic. It proves the providers and wiring, not the room.
+- [ ] **No owner profile yet?** Then *Start listening* begins in calibration: the first voice is offered as the owner and nothing is answered until someone confirms or skips it in the UI. Enroll the owner (step 1) so the demo never opens on a dead beat.
 - [ ] Warn everyone before saving any server file: `tsx watch` restarts the server and drops the mic stream.
 
 ## 1. Owner enrollment
@@ -79,7 +81,18 @@ Every spoken reply prints one line when its audio starts:
 - **tts**: Cartesia synthesis after the decision.
 - **play**: the browser fetching and starting the clip.
 
-Target: **under 4 s total**. Paste lines from the Bob scene here:
+Target: **under 4 s total**.
+
+Synthetic baseline from `npm run smoke:voice` (Cartesia-spoken questions streamed as a fake mic, Moss off, home Wi-Fi, 2026-10-24 ~9 pm). This is a floor for the pipeline, not a room measurement:
+
+| Turn | stt | decide | tts | play | total |
+| --- | --- | --- | --- | --- | --- |
+| "Hey, is the frontend code up yet?" → ANSWER | 0.9s | 2.3s | 0.8s | n/a | 4.0s |
+| "Can you approve the production rollback for me?" → ALERT_OWNER | 1.4s | 1.5s | 0.4s | n/a | 3.3s |
+
+`decide` is the biggest share and the answer path sits at the 4 s line before Moss retrieval is added. Watch it in the real runs.
+
+Paste lines from the Bob scene here:
 
 | Turn | stt | decide | tts | play | total |
 | --- | --- | --- | --- | --- | --- |

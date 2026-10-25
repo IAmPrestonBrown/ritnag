@@ -24,6 +24,7 @@ Open the `http://localhost:3000/#token=…` link the server prints. The token is
 | `npm run typecheck` | TypeScript |
 | `npm run build && npm start` | Production build served by Node |
 | `npm run voice:model` | Prefetch the speaker-verification model (~26 MB) |
+| `npm run smoke:voice` | With the server running: two synthetic spoken questions through Deepgram → Claude → Cartesia, pass/fail plus timings. No mic needed; run it before rehearsal, not during |
 
 Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store, `workspace-token` holds the browser access token, `owner-voice.json` is the owner's voice profile (embedding only; delete it from the UI), and `models/` caches the speaker model.
 
