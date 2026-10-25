@@ -19,6 +19,7 @@ Open the `http://localhost:3000/#token=…` link the server prints. The token is
 | Command | |
 | --- | --- |
 | `npm run dev` | Dev server with Vite middleware (one origin) |
+| `npm run check` | Typecheck + tests + build; run before every PR |
 | `npm test` | Session/pipeline tests |
 | `npm run typecheck` | TypeScript |
 | `npm run build && npm start` | Production build served by Node |
@@ -27,6 +28,10 @@ Open the `http://localhost:3000/#token=…` link the server prints. The token is
 Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store, `workspace-token` holds the browser access token, `owner-voice.json` is the owner's voice profile (embedding only; delete it from the UI), and `models/` caches the speaker model.
 
 Enroll the owner's voice from the UI (**Enroll voice**, about 90 s) before demoing anything that learns from speech.
+
+## Team workflow
+
+Three parallel workstreams; see **[docs/WORKSTREAMS.md](docs/WORKSTREAMS.md)** for owners, file ownership, tasks and the timeline, and [CLAUDE.md](CLAUDE.md) for the rules every Claude Code session follows.
 
 ## Docs
 

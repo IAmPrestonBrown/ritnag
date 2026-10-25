@@ -1,0 +1,28 @@
+# Who reviews what. See docs/WORKSTREAMS.md for the full ownership map. Preston merges everything.
+*                                   @IAmPrestonBrown
+
+# Ears (Preston)
+/server/audioRelay.ts               @IAmPrestonBrown
+/server/turnAssembler.ts            @IAmPrestonBrown
+/server/voice/                      @IAmPrestonBrown
+/server/providers/deepgram.ts       @IAmPrestonBrown
+/src/audio/                         @IAmPrestonBrown
+
+# Face (Ritvik)
+/src/App.tsx                        @RCSharm07 @IAmPrestonBrown
+/src/components/                    @RCSharm07 @IAmPrestonBrown
+/src/styles.css                     @RCSharm07 @IAmPrestonBrown
+/src/components/VoiceOnboarding.tsx @IAmPrestonBrown
+/src/components/MicPicker.tsx       @IAmPrestonBrown
+
+# Voice & Story (Leon)
+/server/decision.ts                 @lkhoshnevis @IAmPrestonBrown
+/server/providers/cartesia.ts       @lkhoshnevis @IAmPrestonBrown
+/eval/                              @lkhoshnevis @IAmPrestonBrown
+/docs/DEVPOST.md                    @lkhoshnevis @IAmPrestonBrown
+/docs/DEMO.md                       @lkhoshnevis @IAmPrestonBrown
+
+# Shared contracts: everyone touches them, Preston reviews closely
+/shared/                            @IAmPrestonBrown
+/server/session.ts                  @IAmPrestonBrown
+/server/executor.ts                 @IAmPrestonBrown

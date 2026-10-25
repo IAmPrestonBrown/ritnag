@@ -38,6 +38,10 @@ Not yet verified: browser playback with real start/end events, and anything Deep
 
 One spoken question triggers exactly one audible answer, with no feedback loop. Mic code is written and unit-tested (assembler and calibration) and waits on the Deepgram key.
 
+## Team plan
+
+Work is split into three streams (Ears / Face / Voice & Story) with tasks and acceptance tests in `docs/WORKSTREAMS.md`, tracked as GitHub issues. Feature freeze is 1:30 a.m. Sunday.
+
 ## Then
 
 - [~] Slice 2: mic capture (AudioWorklet → mono PCM16; Deepgram `linear16` at the real sample rate) → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration as the no-profile fallback; live speaker map. **Code done, needs live test.**

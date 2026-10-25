@@ -13,7 +13,8 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "voice:model": "tsx server/voice/fetchModel.ts"
+    "voice:model": "tsx server/voice/fetchModel.ts",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
