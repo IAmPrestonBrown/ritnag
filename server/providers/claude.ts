@@ -18,11 +18,15 @@ export async function claudeDecide(system: string, user: string): Promise<Decisi
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const model = anthropicModel();
+      // Haiku has no server-side refusal fallback; other current models route declines automatically.
+      const fallback = model.includes("haiku")
+        ? {}
+        : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
       const response = await getClient().beta.messages.parse({
-        model: anthropicModel(),
+        model,
         max_tokens: 4000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...fallback,
         system,
         messages: [{ role: "user", content: user }],
         output_config: { effort, format: betaZodOutputFormat(Decision) },

@@ -4,7 +4,7 @@ _Last updated 2026-10-24._
 
 ## Works now (verified)
 
-- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (11 tests), and `npm run build` all pass.
+- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (18 tests), and `npm run build` all pass.
 - Typed-input pipeline (`POST /api/turn`) using the same session pipeline speech will use.
 - Session logic covered by tests with a scripted decider and a fake index:
   - Replayed provider events don't answer or count twice.
@@ -18,21 +18,29 @@ _Last updated 2026-10-24._
 - Server smoke test without keys: health reports missing providers, `/api` returns 401 without the token, teach persists to local JSON, and the UI is served.
 - UI: SVG imp with idle/listening/thinking/speaking/alert/error states, caption, memory panel (cited memory highlighted, sources, times asked), people panel (tone and priority editable, per-person repeat count), transcript, alerts with acknowledge, focus mode, stop speaking, reset (with confirm), typed input, manual speaker correction, teach answer, Moss status pill, and a Rebuild index button.
 
-## Written but not yet run against real providers
+## Verified against real providers (2026-10-24, typed input)
 
-- Claude decision call (`claude-opus-5-5`, effort `low`, structured output via `betaZodOutputFormat`, server-side refusal fallback).
-- Moss `SessionIndex` rebuild/upsert/remove/query/push (`@moss-js/moss` 1.21.0).
-- Cartesia `/tts/bytes` MP3 and browser playback with real start/end events.
+Bob scenario run end to end on real **Claude + Moss**:
+- Guest asks → `WAIT`. Owner answers → `LEARN`, then the memory is indexed in Moss and pushed to the cloud.
+- "That was Bob… be sarcastic" → Bob created, tone sarcastic, bound to the guest label.
+- Bob's paraphrase "Is the frontend code up yet?" → Moss hit → `ANSWER` citing the memory, sarcastic, fact intact. Repeat counts increment per person and per memory.
+- "Can you approve the production rollback?" → `ALERT_OWNER`. "What's the wifi password?" (unknown) → `WAIT`, nothing invented.
+- Decision latency: **Opus 5.5 ~2.2–3.1 s**, **Haiku 5.5 ~1.4–3.0 s** (same decisions; set `ANTHROPIC_MODEL`).
+- **Cartesia** `/tts/bytes` verified: 0.6–0.9 s per line (sample voices rendered: Henry, Archie, Lauren).
 
-**Blocked on credentials:** `ANTHROPIC_API_KEY`, `MOSS_PROJECT_ID`/`MOSS_PROJECT_KEY`, `CARTESIA_API_KEY`/`CARTESIA_VOICE_ID`, and later `DEEPGRAM_API_KEY`.
+Fixed during the run: the boot-time Moss build (first run downloads the embedding model) raced the first memory write, and pushing an empty index is rejected by Moss. Writes and queries now wait for the build, and empty pushes are skipped.
 
-## Next milestone: Slice 1 exit
+Not yet verified: browser playback with real start/end events, and anything Deepgram (no key yet).
 
-With keys in `.env`: type "Did you push the frontend PR?" as guest-A, answer as owner, then type "Is the frontend code up yet?". The test passes if Moss retrieves the memory, Claude answers from it, and Cartesia speaks it.
+**Needed:** `CARTESIA_VOICE_ID` (pick a voice), `DEEPGRAM_API_KEY`.
+
+## Next milestone: Slice 2 exit
+
+One spoken question triggers exactly one audible answer, with no feedback loop. Mic code is written and unit-tested (assembler and calibration) and waits on the Deepgram key.
 
 ## Then
 
-- [ ] Slice 2: mic capture (MediaRecorder WebM/Opus) → `/api/audio` → Deepgram (`nova-3`, diarization, interim results, utterance end) → turn assembler; owner calibration; partial transcripts.
+- [~] Slice 2: mic capture → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration; live speaker map. **Code done, needs live test.**
 - [ ] Slice 3: live Bob scene end to end by voice.
 - [ ] Slice 4: priority + focus escalation by voice; one meeting fact recalled later.
 - [ ] Slice 5: polish, venue rehearsal, video, submission.

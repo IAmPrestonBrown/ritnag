@@ -45,7 +45,10 @@ const emit = (e: ServerEvent) => {
 const decider: Decider = async (ctx) => {
   const t0 = Date.now();
   const d = await claudeDecide(SYSTEM_PROMPT, buildUserMessage(ctx));
-  console.log(`[imp] decision ${d.action} in ${Date.now() - t0}ms (${ctx.role}: "${ctx.utterance.text.slice(0, 60)}")`);
+  console.log(
+    `[imp] decision ${d.action} in ${Date.now() - t0}ms (${ctx.role}: "${ctx.utterance.text.slice(0, 60)}")` +
+      (d.spokenText ? ` -> "${d.spokenText}"` : ""),
+  );
   return d;
 };
 

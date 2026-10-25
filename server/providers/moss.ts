@@ -32,6 +32,8 @@ export class MossIndex {
   private client: MossClient | null = null;
   private session: SessionIndex | null = null;
   private pushTimer: NodeJS.Timeout | null = null;
+  /** In-flight rebuild. The first one downloads the embedding model, so it can take a while. */
+  private building: Promise<boolean> | null = null;
   private status: MossStatus = {
     configured: Boolean(process.env.MOSS_PROJECT_ID && process.env.MOSS_PROJECT_KEY),
     ready: false,
@@ -55,8 +57,23 @@ export class MossIndex {
   }
 
   /** Rebuilds the index from authoritative local memories. Also the "Rebuild index" action. */
-  async rebuild(memories: Memory[]): Promise<boolean> {
-    if (!this.status.configured) return false;
+  rebuild(memories: Memory[]): Promise<boolean> {
+    if (!this.status.configured) return Promise.resolve(false);
+    const run = (this.building ?? Promise.resolve(true)).then(() => this.doRebuild(memories));
+    this.building = run.finally(() => {
+      if (this.building === guarded) this.building = null;
+    });
+    const guarded = this.building;
+    return run;
+  }
+
+  /** Waits for any in-flight build so writes and queries never race it. */
+  private async ready(): Promise<SessionIndex | null> {
+    if (this.building) await this.building.catch(() => {});
+    return this.session;
+  }
+
+  private async doRebuild(memories: Memory[]): Promise<boolean> {
     try {
       this.client ??= new MossClient(process.env.MOSS_PROJECT_ID!, process.env.MOSS_PROJECT_KEY!);
       // A fresh session starts empty; we fill it from local records rather than trusting the cloud copy.
@@ -64,6 +81,7 @@ export class MossIndex {
       this.session = await this.client.session(INDEX_NAME());
       if (memories.length) await this.session.addDocs(memories.map(toDoc), { upsert: true });
       this.status = { ...this.status, ready: true, docCount: this.session.docCount, lastError: null };
+      console.log(`[moss] index ready: ${this.session.docCount} docs`);
       this.schedulePush();
       this.onChange();
       return true;
@@ -75,10 +93,15 @@ export class MossIndex {
   }
 
   async upsert(m: Memory): Promise<boolean> {
-    if (!this.session) return false;
+    if (!this.status.configured) return false;
+    const session = await this.ready();
+    if (!session) {
+      this.fail(`index ${m.id} skipped`, "Moss index not ready; rebuild the index");
+      return false;
+    }
     try {
-      await this.session.addDocs([toDoc(m)], { upsert: true });
-      this.status.docCount = this.session.docCount;
+      await session.addDocs([toDoc(m)], { upsert: true });
+      this.status.docCount = session.docCount;
       this.status.lastError = null;
       this.schedulePush();
       this.onChange();
@@ -90,10 +113,11 @@ export class MossIndex {
   }
 
   async remove(ids: string[]): Promise<void> {
-    if (!this.session || ids.length === 0) return;
+    const session = ids.length ? await this.ready() : null;
+    if (!session) return;
     try {
-      await this.session.deleteDocs(ids);
-      this.status.docCount = this.session.docCount;
+      await session.deleteDocs(ids);
+      this.status.docCount = session.docCount;
       this.schedulePush();
       this.onChange();
     } catch (err) {
@@ -103,9 +127,10 @@ export class MossIndex {
 
   /** Null means search is unavailable (not configured or erroring); callers must say so. */
   async search(query: string, topK = 8): Promise<Hit[] | null> {
-    if (!this.session) return null;
+    const session = await this.ready();
+    if (!session) return null;
     try {
-      const res = await this.session.query(query, { topK });
+      const res = await session.query(query, { topK });
       return res.docs.map((d) => ({ id: d.id, score: d.score }));
     } catch (err) {
       this.fail("query failed", err);
@@ -122,6 +147,11 @@ export class MossIndex {
 
   private async push() {
     if (!this.session) return;
+    if (this.session.docCount === 0) {
+      // Moss rejects pushing an empty index; nothing to mirror yet.
+      this.status.pushPending = false;
+      return void this.onChange();
+    }
     try {
       await this.session.pushIndex();
       this.status.lastPushAt = Date.now();
