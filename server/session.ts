@@ -214,7 +214,10 @@ export class Session {
     if (generation !== this.generation) return;
     // Filler never reaches Claude: each call is ~1-3 s and turns are single-file, so chatter
     // would otherwise delay the next real question.
-    if (!needsDecision(utterance, this.pendingQuestion !== null)) return;
+    if (!needsDecision(utterance, this.pendingQuestion !== null)) {
+      console.log(`[imp] skipped filler (${utterance.isOwner ? "owner" : "visitor"}): "${utterance.text.slice(0, 60)}"`);
+      return;
+    }
     const started = this.now();
     this.setState("thinking", null);
 
@@ -585,8 +588,10 @@ export function needsDecision(u: Utterance, questionPending: boolean): boolean {
   const text = u.text.trim();
   const words = text.split(/\s+/).filter(Boolean).length;
   if (u.source === "typed") return true; // typed input is deliberate
-  if (u.isOwner) return questionPending || words >= 5 || OWNER_CUE.test(text);
-  return text.includes("?") || QUESTION_START.test(text) || REQUEST.test(text) || SELF_INTRO.test(text);
+  // Question-shaped turns always go through, whoever they're labeled as: labels are unreliable,
+  // and a "visitor" question mislabeled as the owner must still be heard.
+  if (text.includes("?") || QUESTION_START.test(text) || REQUEST.test(text) || SELF_INTRO.test(text)) return true;
+  return u.isOwner && (questionPending || words >= 5 || OWNER_CUE.test(text));
 }
 
 const effectAction = (e: Effect) =>

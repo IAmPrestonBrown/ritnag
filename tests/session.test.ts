@@ -358,3 +358,10 @@ describe("needsDecision (filler gate)", () => {
     expect(needsDecision(u("ok", false, "typed"), false)).toBe(true);
   });
 });
+
+describe("needsDecision regression", () => {
+  it("never drops a question just because it was labeled as the owner", () => {
+    const u = { id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk0", personId: null, text: "Is the frontend up?", startedAt: 0, endedAt: 0, isOwner: true, source: "speech" } as const;
+    expect(needsDecision(u, false)).toBe(true);
+  });
+});
