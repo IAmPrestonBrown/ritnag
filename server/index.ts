@@ -32,6 +32,7 @@ import {
   SuggestionRequest,
   PersonUpdateRequest,
   PlaybackRequest,
+  DirectorSayRequest,
   SpeechRequest,
   TeachRequest,
   TurnRequest,
@@ -358,6 +359,13 @@ app.post("/api/speech/test", (_req, res) => {
   if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
   const responseId = session.say("Testing, testing. I'm alive and mildly annoyed about it.");
   res.json({ responseId });
+});
+
+app.post("/api/director/say", (req, res) => {
+  const b = body(DirectorSayRequest, req, res);
+  if (!b) return;
+  if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
+  res.json({ responseId: session.say(b.text, b.tone) });
 });
 
 app.post("/api/playback", (req, res) => {

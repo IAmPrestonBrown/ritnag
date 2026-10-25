@@ -12,12 +12,14 @@ import { SideTabs } from "./components/SideTabs";
 import { VoiceOnboarding } from "./components/VoiceOnboarding";
 import { decisionDetails } from "./stage";
 import { notifyAlert, primeAlerts } from "./notify";
+import { Toasts, useToasts } from "./components/Toasts";
+import { useDirector } from "./director";
 import type { Person } from "../shared/schemas";
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 export function App() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [rawSnapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [impState, setImpState] = useState<ImpState>("idle");
   const [caption, setCaption] = useState<string | null>(null);
@@ -30,6 +32,13 @@ export function App() {
   const [lastDecision, setLastDecision] = useState<DecisionSummary | null>(null);
   const [partial, setPartial] = useState<{ speakerLabel: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const toasts = useToasts();
+  const director = useDirector({
+    onPartial: setPartial,
+    onThinking: setDeciding,
+    onNotice: toasts.push,
+    onError: (m) => setError(m),
+  });
   const generation = useRef(0);
   // the event handler is registered once, so it reads people through a ref
   const people = useRef<Person[]>([]);
@@ -118,6 +127,9 @@ export function App() {
         case "alert.created":
           notifyAlert(e.alert, people.current);
           break;
+        case "notice":
+          toasts.push(e.notice);
+          break;
         case "error":
           setError(e.message);
           // the server ended the transcription stream; release the mic too
@@ -147,7 +159,9 @@ export function App() {
       </main>
     );
   }
-  if (!snapshot) return <main className="gate">Connecting to Ritnag…</main>;
+  if (!rawSnapshot) return <main className="gate">Connecting to Ritnag…</main>;
+  // Director rows (scripted intro) appear in the panels exactly like heard speech.
+  const snapshot = director.overlay(rawSnapshot);
 
   // Enrollment phrases must not reach the live pipeline (they include questions).
   const openOnboarding = () => {
@@ -172,7 +186,8 @@ export function App() {
             ? "Updated who's who"
             : null;
   const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
-  const listening = snapshot.session.listening;
+  // A running director script looks live.
+  const listening = snapshot.session.listening || director.active;
   const needsAttention = !connected || Boolean(snapshot.index.lastError);
   const statusText = !connected ? "Reconnecting…" : listening ? "Listening" : micOn ? "Connecting…" : "Not listening";
 
@@ -227,7 +242,7 @@ export function App() {
           </p>
           <PrimaryControls
             snapshot={snapshot}
-            micOn={micOn}
+            micOn={micOn || director.active}
             speaking={speaking}
             onToggleMic={() => void toggleMic()}
             onStopSpeaking={() => player.current?.stop()}
@@ -237,6 +252,8 @@ export function App() {
         <SideTabs snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} partial={partial} />
       </div>
 
+      <Toasts toasts={toasts.toasts} onLeave={toasts.leave} onRemove={toasts.remove} />
+
       {settings && (
         <SettingsDrawer
           snapshot={snapshot}
@@ -245,6 +262,7 @@ export function App() {
           micLabel={micLabel}
           demo={demo}
           onDemo={setDemo}
+          director={director}
           onEnroll={() => {
             setSettings(false);
             openOnboarding();

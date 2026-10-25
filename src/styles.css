@@ -321,3 +321,44 @@ body { font-size: 15px; -webkit-font-smoothing: antialiased; }
 .alerts { border-color: var(--line); border-left: 4px solid var(--alert); }
 /* a soft floor shadow so the imp stands somewhere instead of floating */
 .imp::before { content: ""; position: absolute; left: 22%; right: 22%; bottom: -2%; height: 7%; border-radius: 50%; background: rgb(0 0 0 / 0.45); filter: blur(6px); }
+
+/* ---------- pop-up notices ---------- */
+.toasts {
+  position: fixed; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 50%; transform: translateX(-50%);
+  z-index: 50; display: grid; gap: 8px; width: min(380px, calc(100vw - 32px)); pointer-events: none;
+}
+.toast {
+  --kind: var(--accent);
+  position: relative; overflow: hidden; pointer-events: auto; cursor: default;
+  display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; align-items: baseline;
+  padding: 10px 14px 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-left: 3px solid var(--kind);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  animation: toast-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.toast.person { --kind: var(--ok); }
+.toast.question { --kind: var(--alert); }
+.toast.repeat { --kind: var(--accent); }
+.toast.name { --kind: #8fb4ff; }
+.toast.leaving { animation: toast-out 240ms ease-in forwards; }
+.toast-kind { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--kind); }
+.toast-title { font-weight: 600; }
+.toast-detail { grid-column: 2; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-timer {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--kind); opacity: 0.7;
+  transform-origin: left; animation: toast-timer linear forwards;
+}
+.toast:hover .toast-timer { animation-play-state: paused; }
+@keyframes toast-in { from { transform: translateY(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toast-out { to { transform: translateY(-24px); opacity: 0; } }
+@keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.leaving { animation-duration: 1ms; }
+}
+
+/* ---------- director ---------- */
+.director-script {
+  width: 100%; margin: 8px 0; padding: 8px 10px; resize: vertical;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line-2); border-radius: var(--radius);
+}
+kbd { font: 12px ui-monospace, Menlo, monospace; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--bg-2); }

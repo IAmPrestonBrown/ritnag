@@ -4,7 +4,7 @@ import type { Decider, DecisionContext } from "./decision";
 import { validateDecision, type Effect } from "./executor";
 import { resolveOwner, type ActiveVoiceProfile } from "./voice/resolver";
 import { stripNames } from "./anonymize";
-import type { ImpState, IndexStatus, ServerEvent, Snapshot, VoiceStatus } from "../shared/events";
+import type { ImpState, IndexStatus, Notice, ServerEvent, Snapshot, VoiceStatus } from "../shared/events";
 import type { Memory, Person, Tone, Utterance } from "../shared/schemas";
 
 export const TYPED_CONNECTION = "typed";
@@ -26,6 +26,8 @@ const OWNER_ENGAGED_MS = Number(process.env.OWNER_ENGAGED_MS || 8_000);
 const REACT_MIN_SCORE = 0.2;
 /** Comebacks to banter: at most one per person in this window. */
 const BANTER_COOLDOWN_MS = 15_000;
+// "Leon detected" at most once a minute per person; the owner is announced once per session
+const NAME_NOTICE_MS = 60_000;
 const FALLBACK_MEMORIES = 50;
 /**
  * Turns are decided one at a time and each decision takes ~1.5-3 s, so steady chatter builds a queue
@@ -140,6 +142,9 @@ export class Session {
   private latestVisitorTurn = new Map<string, Utterance>();
   private lastDeflection = new Map<string, number>();
   private lastOwnerSpokeAt = -Infinity;
+  // notices: speaker labels already announced this session, and when each name was last announced
+  private seenVoices = new Set<string>();
+  private lastNamed = new Map<string, number>();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
   /** Set only between the browser's "playback started" and "ended": the imp's voice is in the room. */
@@ -208,7 +213,39 @@ export class Session {
       if (this.pendingQuestion && ids.includes(this.pendingQuestion.id)) this.pendingQuestion.personId = personId;
     }
     this.opts.emit({ type: "speaker.bound", speakerLabel: label, personId, generation: this.generation });
+    if (personId) {
+      const person = (await this.store.listPeople()).find((p) => p.id === personId);
+      if (person) this.announceName(person.id, person.name);
+    }
     await this.broadcast();
+  }
+
+  // ---------- notices ----------
+
+  notice(kind: Notice["kind"], title: string, detail?: string | null) {
+    this.opts.emit({ type: "notice", notice: { kind, title, detail: detail ?? null }, generation: this.generation });
+  }
+
+  /** A voice heard for the first time this session, or a known person speaking again (throttled). */
+  private async announceSpeaker(u: Utterance) {
+    if (u.isOwner && u.ownerCertain) return this.announceName("owner", this.opts.ownerName || "Owner");
+    if (u.isOwner) return;
+    if (u.personId) {
+      const person = (await this.store.listPeople()).find((p) => p.id === u.personId);
+      if (person) this.announceName(person.id, person.name);
+      return;
+    }
+    const k = key(u.connectionId, u.speakerLabel);
+    if (this.seenVoices.has(k)) return;
+    this.seenVoices.add(k);
+    this.notice("person", "New person detected", `Unknown voice · ${u.speakerLabel}`);
+  }
+
+  private announceName(id: string, name: string) {
+    const last = this.lastNamed.get(id);
+    if (last !== undefined && (id === "owner" || this.now() - last < NAME_NOTICE_MS)) return;
+    this.lastNamed.set(id, this.now());
+    this.notice("name", `${name} detected`, id === "owner" ? "Owner voice" : null);
   }
 
   private voiceProfile() {
@@ -233,6 +270,8 @@ export class Session {
     this.pendingUnknown.clear();
     this.suggestions.clear();
     this.lastOwnerSpokeAt = -Infinity;
+    this.seenVoices.clear();
+    this.lastNamed.clear();
     if (opts.wipe) {
       this.bindings.clear();
       this.id = randomUUID();
@@ -312,6 +351,7 @@ export class Session {
       return utterance;
     }
     void this.broadcast();
+    if (turn.source === "speech") await this.announceSpeaker(utterance);
     this.enqueue(utterance, generation);
     return utterance;
   }
@@ -478,6 +518,9 @@ export class Session {
           memoryId: effect.memoryIds[0] ?? null,
           classification: "repeat",
         });
+        const memories = await this.store.listAllMemories();
+        const times = memories.find((m) => m.id === effect.memoryIds[0])?.timesAsked ?? 0;
+        this.notice("repeat", times > 1 ? `Answer repeated · ${times}×` : "Answer repeated", u.text);
         return effect.spokenText;
       }
       case "alert": {
@@ -511,6 +554,7 @@ export class Session {
             memoryId: null,
             classification: effect.spokenText ? "deflected" : "new",
           });
+          this.notice("question", "New question detected", u.text);
           // Unanswered question: the owner's next reply may answer it.
           this.pendingQuestion = u;
           if (!effect.spokenText) this.setState(this.listening ? "listening" : "idle", "Hmm. Waiting on an answer for that one.");
@@ -540,10 +584,12 @@ export class Session {
           toneNote: effect.toneNote ?? person?.toneNote ?? null,
           priority: effect.priority ?? person?.priority ?? false,
         };
+        const isNew = !person;
         person = person
           ? await this.store.updatePerson(person.id, patch)
           : await this.store.createPerson({ name: effect.name, ...patch });
         if (!person) return null;
+        if (isNew) this.notice("person", `New person: ${person.name}`, person.relationship);
 
         if (effect.refersTo === "pending_unknown") {
           const target = this.singlePendingUnknown();
@@ -702,8 +748,8 @@ export class Session {
   // ---------- speech gating ----------
 
   /** Speaks fixed text through the normal speech path (used by the Test voice control). */
-  say(text: string) {
-    return this.queueSpeech(text, this.generation, "sarcastic");
+  say(text: string, tone: Tone = "sarcastic") {
+    return this.queueSpeech(text, this.generation, tone);
   }
 
   /**

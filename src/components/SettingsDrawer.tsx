@@ -6,6 +6,7 @@ import { SpeakerPicker } from "./SpeakerPicker";
 import { RecordClips } from "./RecordClips";
 import { VoicePanel } from "./VoiceOnboarding";
 import { AdvancedControls, DebugDrawer, SpeakerMap } from "./SessionControls";
+import { DEFAULT_SCRIPT, type useDirector } from "../director";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -27,6 +28,7 @@ export function SettingsDrawer({
   micLabel,
   demo,
   onDemo,
+  director,
   onEnroll,
   onClose,
   onError,
@@ -37,6 +39,7 @@ export function SettingsDrawer({
   micLabel: string;
   demo: boolean;
   onDemo: (on: boolean) => void;
+  director: ReturnType<typeof useDirector>;
   onEnroll: () => void;
   onClose: () => void;
   onError: (message: string) => void;
@@ -105,6 +108,28 @@ export function SettingsDrawer({
           <label className="toggle">
             <input type="checkbox" checked={demo} onChange={(e) => onDemo(e.target.checked)} /> Projector mode <span className="muted">(D)</span>
           </label>
+        </Section>
+
+        <Section title="Director (scripted intro)">
+          <p className="muted">
+            Press <kbd>N</kbd> for the next cue (one paragraph). Rows, pop-ups and the imp's lines look live; nothing is heard or
+            decided. Cue {director.cue} of {director.total}.
+          </p>
+          <textarea
+            className="director-script"
+            rows={10}
+            spellCheck={false}
+            value={director.script}
+            onChange={(e) => director.setScript(e.target.value)}
+          />
+          <div className="row">
+            <button className="small" onClick={director.reset}>
+              Restart script
+            </button>
+            <button className="small" onClick={() => director.setScript(DEFAULT_SCRIPT)}>
+              Default script
+            </button>
+          </div>
         </Section>
 
         <Section title="Developer">

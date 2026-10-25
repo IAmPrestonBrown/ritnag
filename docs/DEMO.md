@@ -36,3 +36,31 @@ Drop the 1:50 beat first if time runs short. Never drop the meeting recall or th
 Roast the repeat questions, not people. No jokes about appearance; the decision prompt refuses them anyway.
 
 **Fallbacks:** typed input in ⚙ Settings (say so out loud if you use it), the recorded video on the desktop, phone hotspot if Wi-Fi drops.
+
+## Pop-up notices
+
+Four pop-ups appear at the top of the screen, each with a draining time bar, then slide out (hover pauses one, click dismisses):
+
+- **New person**: a voice heard for the first time this session, or a person the owner just named.
+- **Question**: a guest asked something the imp can't answer yet.
+- **Repeat**: the imp answered a repeat question from memory (with the count).
+- **Recognized**: "Leon detected" when a known person speaks (at most once a minute each), the owner once per session.
+
+## Director mode (scripted intro for the video)
+
+For the intro shot, drive the screen by hand: press **N** for the next cue. Rows stream into the transcript word by
+word, the imp "thinks", pop-ups fire, and Archie really says the imp's lines, but nothing is heard or decided.
+The status shows "Listening" while a script runs. Edit the script in **Settings → Director** (saved in this browser);
+"Restart script" clears the scripted rows. One paragraph is one cue:
+
+```
+owner: Okay, heads down.
+guest: What's the wifi password?          (guest S3: … picks the label)
+Leon: Yo, what's the wifi?                (a named person)
+notice question: New question detected | What's the wifi password?
+think 1400                                (imp thinking, ms)
+imp sarcastic: It's calhacks2026.         (spoken aloud; tone optional)
+wait 800
+```
+
+Reload the page (or Restart script) before switching to the live part of the demo.

@@ -206,6 +206,12 @@ export const VerifyTestQuery = AudioQuery.extend({
 export const FocusRequest = z.object({ focusMode: z.boolean() });
 export const AckRequest = z.object({ alertId: z.string() });
 export const SpeechRequest = z.object({ responseId: z.string() });
+/** Director mode (scripted demo intro): the imp says exactly this line, in this tone. */
+export const DirectorSayRequest = z.object({
+  text: z.string().min(1).max(300),
+  tone: Tone.default("sarcastic"),
+});
+
 export const PlaybackRequest = z.object({
   responseId: z.string(),
   phase: z.enum(["started", "ended"]),

@@ -870,3 +870,49 @@ describe("script gaps", () => {
     });
   });
 });
+
+describe("pop-up notices", () => {
+  const notices = (events: ServerEvent[]) => events.flatMap((e) => (e.type === "notice" ? [`${e.notice.kind}: ${e.notice.title}`] : []));
+
+  it("announces a new voice once, an unanswered question, a repeat answer, and the owner once", async () => {
+    const events: ServerEvent[] = [];
+    let clock = 1_000_000;
+    const session = new Session(new JsonMemoryStore(null), async (ctx) => ({ ...base, ...scripted(ctx) }), new FakeIndex(), {
+      ownerName: "Preston",
+      emit: (e) => events.push(e),
+      now: () => clock,
+    });
+    session.setSpeechConnection("sm-1");
+    session.setOwnerSpeaker("owner");
+    const s = { source: "speech" as const, connectionId: "sm-1", asOwner: false };
+    const turn = async (speakerLabel: string, text: string) => {
+      await session.ingest({ ...s, text, speakerLabel, providerEventId: `${speakerLabel}:${text}` });
+      await session.idle();
+      clock += 40_000; // past the owner's quiet window and the deflection cooldown
+    };
+    await turn("owner", "Okay I'm back to coding now.");
+    await turn("owner", "Still coding over here, folks.");
+    await turn("S2", "When is the demo tomorrow?");
+    await turn("S2", "And where is it happening?");
+    await session.addMemory(
+      { kind: "faq", canonicalQuestion: "frontend PR?", factualAnswer: "Pushed.", sourceUtteranceIds: [], sourcePersonId: null, observedAt: Date.now(), validUntil: null },
+      null,
+    );
+    await turn("S3", "Is the frontend up yet?");
+    expect(notices(events)).toEqual([
+      "name: Preston detected",
+      "person: New person detected",
+      "question: New question detected",
+      "question: New question detected",
+      "person: New person detected",
+      "repeat: Answer repeated",
+    ]);
+  });
+
+  it("names a newly created person and announces them when bound", async () => {
+    const { say, events } = setup(scripted);
+    await say("guest-A", "Did you push the frontend PR?");
+    await say("owner", "That was Bob, my roommate. Be sarcastic with him.");
+    expect(notices(events)).toEqual(["question: New question detected", "person: New person: Bob", "name: Bob detected"]);
+  });
+});

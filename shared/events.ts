@@ -81,7 +81,16 @@ export type ServerEvent =
   | { type: "decision.completed"; decision: DecisionSummary; generation: number }
   | { type: "speech.ready"; responseId: string; text: string; tone: Tone; generation: number; reaction?: boolean }
   | { type: "alert.created"; alert: Alert; generation: number }
+  | { type: "notice"; notice: Notice; generation: number }
   | { type: "error"; message: string; recoverable: boolean };
+
+/** A short pop-up for the room's big moments (toasts at the top of the screen). */
+export type NoticeKind = "person" | "question" | "repeat" | "name";
+export interface Notice {
+  kind: NoticeKind;
+  title: string;
+  detail?: string | null;
+}
 
 export interface Health {
   ok: boolean;
