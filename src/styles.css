@@ -139,6 +139,10 @@ input { flex: 1; min-width: 0; }
 .imp--thinking svg { animation: glow 1.2s ease-in-out infinite; }
 .imp { position: relative; }
 .imp--thinking::after { content: "• • •"; position: absolute; top: -4%; right: 2%; font-size: clamp(22px, 4vw, 44px); font-weight: 800; color: var(--accent); animation: pulse 0.9s ease-in-out infinite; }
+.imp--thinking .imp-body { animation: hop 0.35s ease-in-out infinite; }
+.imp--thinking .imp-pupils { animation: dart 0.6s steps(1) infinite; }
+.imp--thinking svg { animation: glow 1.2s ease-in-out infinite; }
+.caption.thinking { color: var(--accent); }
 .imp--speaking .imp-body { animation: bob 1s ease-in-out infinite; }
 .imp--alert .imp-body { animation: shake 0.45s ease-in-out 3; }
 .imp--alert svg { filter: drop-shadow(0 0 18px var(--alert)); }
@@ -146,6 +150,7 @@ input { flex: 1; min-width: 0; }
 
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes lean { 0%, 100% { transform: rotate(-3deg) scale(1.02); } 50% { transform: rotate(-5deg) scale(1.04); } }
+@keyframes glow { 0%, 100% { filter: drop-shadow(0 0 6px var(--accent)); } 50% { filter: drop-shadow(0 0 22px var(--accent)); } }
 @keyframes hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 @keyframes wag { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(8deg); } }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
