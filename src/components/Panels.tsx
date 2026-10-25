@@ -4,8 +4,21 @@ import { post } from "../api";
 
 const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"];
 
-const speakerName = (s: Snapshot, u: Snapshot["transcript"][number]) =>
-  u.isOwner ? `${s.ownerName} (owner)` : s.people.find((p) => p.id === u.personId)?.name ?? `unknown · ${u.speakerLabel}`;
+type Turn = Snapshot["transcript"][number];
+
+const speakerName = (s: Snapshot, u: Turn) =>
+  u.isOwner
+    ? `${s.ownerName} (owner${u.ownerCertain ? "" : "?"})`
+    : s.people.find((p) => p.id === u.personId)?.name ?? `unknown · ${u.speakerLabel}`;
+
+/** How the owner decision was made, shown honestly: voice score, sticky label, manual, calibrated label. */
+function OwnerBadge({ u }: { u: Turn }) {
+  const score = u.ownerScore != null ? `voice ${u.ownerScore.toFixed(2)}` : null;
+  const text =
+    u.ownerBasis === "manual" ? "manual" : u.ownerBasis === "label" ? "label" : u.ownerBasis === "stickiness" ? `${score ?? "short"} · sticky` : score;
+  if (!text) return null;
+  return <span className={`tag ${u.isOwner && u.ownerCertain ? "ok" : ""}`}>{text}</span>;
+}
 
 export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; partial: { speakerLabel: string; text: string } | null }) {
   const rows = snapshot.transcript.slice(-14);
@@ -15,7 +28,10 @@ export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; par
       {rows.length === 0 && !partial && <p className="muted">Nothing heard yet.</p>}
       <ol className="transcript">
         {rows.map((u) => (
-          <li key={u.id} className={`${u.isOwner ? "owner" : u.personId ? "known" : "unknown"}${u.ownerSuspect ? " suspect" : ""}`}>
+          <li
+            key={u.id}
+            className={`${u.isOwner ? "owner" : u.personId ? "known" : "unknown"}${u.ownerSuspect ? " suspect" : ""}${u.isOwner && !u.ownerCertain ? " uncertain" : ""}`}
+          >
             <span className="who">{speakerName(snapshot, u)}</span>
             <span className="what">
               {u.text}
@@ -25,13 +41,28 @@ export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; par
               {u.source === "typed" ? (
                 <span className="tag">typed</span>
               ) : (
-                <button
-                  className="small"
-                  title={u.isOwner ? "This wasn't me: re-run as a visitor" : "This was me: re-run as the owner"}
-                  onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: !u.isOwner })}
-                >
-                  {u.isOwner ? "not me" : "that was me"}
-                </button>
+                <>
+                  <OwnerBadge u={u} />
+                  {/* An unverified owner turn wasn't learned from: offer both answers. */}
+                  {(!u.isOwner || !u.ownerCertain) && (
+                    <button
+                      className="small"
+                      title="This was me: re-run as a confirmed owner turn"
+                      onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: true })}
+                    >
+                      that was me
+                    </button>
+                  )}
+                  {u.isOwner && (
+                    <button
+                      className="small"
+                      title="This wasn't me: re-run as a visitor"
+                      onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: false })}
+                    >
+                      not me
+                    </button>
+                  )}
+                </>
               )}
             </span>
           </li>

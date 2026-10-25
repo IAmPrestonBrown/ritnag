@@ -6,6 +6,7 @@ import { MicCapture } from "./audio/capture";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
 import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar, WhoJustAsked } from "./components/SessionControls";
+import { VoiceOnboarding, VoicePanel } from "./components/VoiceOnboarding";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -22,6 +23,7 @@ export function App() {
   const mic = useRef(new MicCapture());
   const conn = useRef<ReturnType<typeof connectEvents> | null>(null);
   const [micOn, setMicOn] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
 
   const stopMic = () => {
     mic.current.stop(conn.current?.socket() ?? null);
@@ -101,6 +103,13 @@ export function App() {
   }
   if (!snapshot) return <main className="gate">Connecting to imp…</main>;
 
+  // Enrollment phrases must not reach the live pipeline (they include questions).
+  const openOnboarding = () => {
+    stopMic();
+    setOnboarding(true);
+  };
+  const voice = snapshot.session.voice;
+
   const shownState: ImpState = speaking ? "speaking" : impState;
   const openAlerts = snapshot.alerts.filter((a) => !a.acknowledgedAt).length;
   const idx = snapshot.index;
@@ -120,6 +129,14 @@ export function App() {
         {idx.configured && (
           <button className="small" onClick={() => post("/api/index/rebuild").catch((e: Error) => setError(e.message))}>
             Rebuild index
+          </button>
+        )}
+        <span className={`pill ${voice.active ? "ok" : voice.enrolled ? "" : "bad"}`}>
+          owner voice {voice.active ? "verifying" : voice.enrolled ? "loading…" : "not enrolled"}
+        </span>
+        {!voice.enrolled && (
+          <button className="small" onClick={openOnboarding}>
+            Enroll voice
           </button>
         )}
       </header>
@@ -156,12 +173,14 @@ export function App() {
         </section>
         <div className="side">
           <MemoryPanel snapshot={snapshot} highlight={lastDecision?.memoryIds ?? []} />
+          <VoicePanel snapshot={snapshot} onEnroll={openOnboarding} />
           <SpeakerMap snapshot={snapshot} />
           <PeoplePanel snapshot={snapshot} />
           <TranscriptPanel snapshot={snapshot} partial={partial} />
         </div>
       </div>
       <DebugDrawer snapshot={snapshot} />
+      {onboarding && <VoiceOnboarding ownerName={snapshot.ownerName} onClose={() => setOnboarding(false)} />}
     </main>
   );
 }

@@ -32,6 +32,22 @@ export async function post<T = unknown>(path: string, body: unknown = {}): Promi
   return res.json() as Promise<T>;
 }
 
+async function request<T>(method: string, path: string, init: { body?: BodyInit; type?: string } = {}): Promise<T> {
+  const headers: Record<string, string> = { "x-imp-token": token ?? "" };
+  if (init.type) headers["Content-Type"] = init.type;
+  const res = await fetch(path, { method, headers, body: init.body });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${path} ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export const del = <T = unknown>(path: string) => request<T>("DELETE", path);
+
+/** Mono PCM16 upload (enrollment takes, verify tests). */
+export function postAudio<T = unknown>(path: string, query: Record<string, string | number>, pcm16: Int16Array<ArrayBuffer>) {
+  const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]));
+  return request<T>("POST", `${path}?${qs}`, { body: pcm16.buffer, type: "application/octet-stream" });
+}
+
 export async function fetchSpeech(responseId: string): Promise<Blob> {
   const res = await fetch("/api/speech", {
     method: "POST",

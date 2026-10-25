@@ -3,12 +3,15 @@ import WebSocket from "ws";
 export const deepgramConfigured = () => Boolean(process.env.DEEPGRAM_API_KEY);
 
 /**
- * Opens a Deepgram live connection for containerized browser audio (WebM/Opus).
- * Containerized audio must NOT carry encoding/sample_rate; Deepgram reads the header.
+ * Opens a Deepgram live connection for raw mono PCM16 from the browser's AudioWorklet.
+ * Raw audio has no header, so encoding and sample_rate are both required (and must be the real rate).
  */
-export function openDeepgram(): WebSocket {
+export function openDeepgram(sampleRate: number): WebSocket {
   const params = new URLSearchParams({
     model: process.env.DEEPGRAM_MODEL || "nova-3",
+    encoding: "linear16",
+    sample_rate: String(sampleRate),
+    channels: "1",
     diarize_model: "latest",
     interim_results: "true",
     smart_format: "true",

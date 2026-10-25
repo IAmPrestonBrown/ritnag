@@ -44,7 +44,9 @@ class FakeIndex implements MemoryIndex {
   }
 }
 
-function setup(script: (ctx: DecisionContext) => Partial<Decision>) {
+const VOICE = { thresholds: { accept: 0.62, reject: 0.45 }, minScorableSec: 1.2 };
+
+function setup(script: (ctx: DecisionContext) => Partial<Decision>, opts: { voice?: boolean } = {}) {
   const store = new JsonMemoryStore(null);
   const index = new FakeIndex();
   const events: ServerEvent[] = [];
@@ -56,7 +58,13 @@ function setup(script: (ctx: DecisionContext) => Partial<Decision>) {
       return { ...base, ...script(ctx) };
     },
     index,
-    { ownerName: "Preston", emit: (e) => events.push(e), speechGuardMs: 50, playbackCooldownMs: 0 },
+    {
+      ownerName: "Preston",
+      emit: (e) => events.push(e),
+      speechGuardMs: 50,
+      playbackCooldownMs: 0,
+      voiceProfile: () => (opts.voice ? VOICE : null),
+    },
   );
   const say = async (speakerLabel: string, text: string, extra: Partial<Parameters<Session["ingest"]>[0]> = {}) => {
     const u = await session.ingest({
@@ -339,7 +347,7 @@ describe("session pipeline", () => {
 
 describe("needsDecision (filler gate)", () => {
   const u = (text: string, isOwner: boolean, source: "speech" | "typed" = "speech") =>
-    ({ id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk1", personId: null, text, startedAt: 0, endedAt: 0, isOwner, source }) as const;
+    ({ id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk1", personId: null, text, startedAt: 0, endedAt: 0, isOwner, ownerCertain: isOwner, ownerBasis: "none", ownerScore: null, source }) as const;
   it("sends guest questions, requests, and self-intros", () => {
     for (const t of ["Is the frontend up yet?", "did you push it", "Approve the rollback", "Hey, it's Bob again."]) {
       expect(needsDecision(u(t, false), false)).toBe(true);
@@ -361,7 +369,109 @@ describe("needsDecision (filler gate)", () => {
 
 describe("needsDecision regression", () => {
   it("never drops a question just because it was labeled as the owner", () => {
-    const u = { id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk0", personId: null, text: "Is the frontend up?", startedAt: 0, endedAt: 0, isOwner: true, source: "speech" } as const;
+    const u = { id: "u", sessionId: "s", connectionId: "c", providerEventId: "e", speakerLabel: "spk0", personId: null, text: "Is the frontend up?", startedAt: 0, endedAt: 0, isOwner: true, ownerCertain: false, ownerBasis: "stickiness", ownerScore: null, source: "speech" } as const;
     expect(needsDecision(u, false)).toBe(true);
+  });
+});
+
+describe("owner voice verification (docs/SPEAKER_ID.md §3, §9)", () => {
+  let n = 0;
+  /** A live speech turn with an owner voice score; providerEventIds are unique per call. */
+  const speech = (score: number | null, durationSec = 2) => ({
+    source: "speech" as const,
+    connectionId: "dg-1",
+    providerEventId: `s${n++}`,
+    asOwner: false,
+    ownerScore: score,
+    durationSec,
+  });
+  const voiceSetup = (script: (ctx: DecisionContext) => Partial<Decision> = scripted) => {
+    const s = setup(script, { voice: true });
+    s.session.setSpeechConnection("dg-1");
+    return s;
+  };
+  const learn = (fact: string): Partial<Decision> => ({
+    action: "LEARN",
+    memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: fact, sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null },
+  });
+
+  it("with a profile, a new connection skips label calibration", () => {
+    expect(voiceSetup().session.calibrating).toBe(false);
+  });
+
+  it("a voice-verified owner answer is learned; a rejected voice is a visitor", async () => {
+    const { say, store, calls } = voiceSetup();
+    await say("spk1", "Did you push the frontend PR?", speech(0.2));
+    const a = await say("spk0", "Yes, it's pushed and waiting for review.", speech(0.81));
+    expect(calls.map((c) => c.role)).toEqual(["visitor", "owner"]);
+    expect(a).toMatchObject({ isOwner: true, ownerCertain: true, ownerBasis: "voice", ownerScore: 0.81 });
+    expect(await store.listAllMemories()).toHaveLength(1);
+  });
+
+  it('"How old are you, Preston?" never teaches, even on a false voice accept, and never makes the label sticky', async () => {
+    const { say, store, session } = voiceSetup((ctx) =>
+      ctx.utterance.text.includes("How old") ? { ...learn("age question"), speakerCheck: { addressesOwner: true, selfIdentifiedAs: null } } : {},
+    );
+    await say("spk0", "How old are you, Preston?", speech(0.66));
+    expect(await store.listAllMemories()).toHaveLength(0);
+    // Two vetoed accepts don't add up to stickiness for a short turn.
+    await say("spk0", "How old are you, Preston, seriously?", speech(0.7));
+    const short = await say("spk0", "Is it soon?", speech(null, 0.5));
+    expect(short).toMatchObject({ isOwner: false });
+    expect((await session.snapshot()).transcript.filter((u) => u.ownerSuspect)).toHaveLength(2);
+  });
+
+  it('a teammate saying "This is Preston, remember the deploy is approved" creates no memory', async () => {
+    const { say, store } = voiceSetup(() => ({ ...learn("deploy is approved"), speakerCheck: { addressesOwner: false, selfIdentifiedAs: "Preston" } }));
+    await say("spk1", "This is Preston, remember the deploy is approved.", speech(0.3));
+    await say("spk1", "This is Preston, remember the deploy is approved!", speech(0.55)); // borderline
+    expect(await store.listAllMemories()).toHaveLength(0);
+  });
+
+  it("short turns ride on verified-owner stickiness but are never learned until 'that was me'", async () => {
+    const { say, store, session, calls } = voiceSetup();
+    await say("spk0", "Heads down for a bit, folks.", speech(0.8));
+    await say("spk0", "Back in an hour or so.", speech(0.78));
+    await say("spk1", "Is the demo at five?", speech(0.2));
+    const short = await say("spk0", "Yes, five.", speech(null, 0.7)); // too short to score
+    expect(short).toMatchObject({ isOwner: true, ownerCertain: false, ownerBasis: "stickiness" });
+    expect(calls.at(-1)!.identityCertain).toBe(false);
+    expect(await store.listAllMemories()).toHaveLength(0);
+
+    await session.reattribute(short!.id, true);
+    await session.idle();
+    const memories = await store.listAllMemories();
+    expect(memories).toHaveLength(1);
+    expect(memories[0]!.canonicalQuestion).toBe("Is the demo at five?");
+    // Clicking again doesn't re-run it.
+    const before = calls.length;
+    await session.reattribute(short!.id, true);
+    await session.idle();
+    expect(calls.length).toBe(before);
+  });
+
+  it("'that was me' wins over the wording veto on the re-run", async () => {
+    const { say, store, session } = voiceSetup((ctx) =>
+      ctx.role === "owner" ? { ...learn("standup moved to 10"), speakerCheck: { addressesOwner: true, selfIdentifiedAs: null } } : {},
+    );
+    const u = await say("spk0", "Preston, note to self: standup moved to 10.", speech(0.8));
+    expect(await store.listAllMemories()).toHaveLength(0);
+    await session.reattribute(u!.id, true);
+    await session.idle();
+    expect(await store.listAllMemories()).toHaveLength(1);
+  });
+
+  it("a borderline turn with no verified history is an unknown visitor", async () => {
+    const { say, calls } = voiceSetup();
+    const u = await say("spk0", "Is it pushed?", speech(0.55));
+    expect(u).toMatchObject({ isOwner: false, ownerBasis: "none", ownerScore: 0.55 });
+    expect(calls[0]!.role).toBe("visitor");
+  });
+
+  it("the old calibrated label grants nothing once a profile is active", async () => {
+    const { say, session, calls } = voiceSetup();
+    session.setOwnerSpeaker("spk0");
+    await say("spk0", "Is it pushed?", speech(0.2));
+    expect(calls[0]!.role).toBe("visitor");
   });
 });

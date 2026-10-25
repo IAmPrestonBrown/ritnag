@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { MemoryStore } from "./memory";
 import type { Decider, DecisionContext } from "./decision";
 import { validateDecision, type Effect } from "./executor";
-import type { ImpState, IndexStatus, ServerEvent, Snapshot } from "../shared/events";
+import { resolveOwner, type ActiveVoiceProfile } from "./voice/resolver";
+import type { ImpState, IndexStatus, ServerEvent, Snapshot, VoiceStatus } from "../shared/events";
 import type { Memory, Person, Tone, Utterance } from "../shared/schemas";
 
 export const TYPED_CONNECTION = "typed";
@@ -28,6 +29,9 @@ export interface IncomingTurn {
   asOwner?: boolean;
   startedAt?: number;
   endedAt?: number;
+  /** Speech only: this turn's audio scored against the owner profile (null = not scored). */
+  ownerScore?: number | null;
+  durationSec?: number | null;
 }
 
 interface PendingResponse {
@@ -44,7 +48,23 @@ export interface SessionOptions {
   playbackCooldownMs?: number;
   /** Max time a speech response blocks the mic if the browser never reports playback end. */
   speechGuardMs?: number;
+  /** Usable owner voice profile, or null (not enrolled / model not ready): fall back to calibration. */
+  voiceProfile?: () => ActiveVoiceProfile | null;
+  voiceStatus?: () => VoiceStatus;
 }
+
+const NO_VOICE: VoiceStatus = {
+  enrolled: false,
+  active: false,
+  model: "idle",
+  error: null,
+  engine: "",
+  createdAt: null,
+  thresholds: null,
+  minScorableSec: null,
+  calibration: null,
+  enrolling: false,
+};
 
 /**
  * Owns one listening session: speaker bindings, the single-flight decision queue,
@@ -68,6 +88,8 @@ export class Session {
   private pendingUnknown = new Map<string, Utterance>();
   // binding key -> person a visitor named themself as; shown for one-click confirmation, never auto-applied
   private suggestions = new Map<string, { personId: string; name: string }>();
+  // speaker labels of voice-verified owner turns on the current speech connection (stickiness)
+  private verifiedOwnerLabels: string[] = [];
   private queue: Promise<void> = Promise.resolve();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
@@ -91,9 +113,11 @@ export class Session {
     for (const key of [...this.bindings.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.bindings.delete(key);
     for (const key of [...this.pendingUnknown.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.pendingUnknown.delete(key);
     for (const key of [...this.suggestions.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.suggestions.delete(key);
+    this.verifiedOwnerLabels = [];
     this.speechConnectionId = connectionId;
     this.ownerSpeakerLabel = null;
-    this.calibrating = connectionId !== null; // every new connection starts by finding the owner
+    // Without a voice profile, every new connection starts by finding the owner's label.
+    this.calibrating = connectionId !== null && !this.voiceProfile();
     this.calibrationCandidate = null;
     this.listening = connectionId !== null;
     this.setState(this.listening ? "listening" : "idle", null);
@@ -136,6 +160,10 @@ export class Session {
     await this.broadcast();
   }
 
+  private voiceProfile() {
+    return this.opts.voiceProfile?.() ?? null;
+  }
+
   setFocus(on: boolean) {
     this.focusMode = on;
     void this.broadcast();
@@ -175,8 +203,17 @@ export class Session {
     // Half-duplex: speech captured while the imp talks never reaches learning or answering.
     if (turn.source === "speech" && this.isMuted()) return null;
 
-    const isOwner =
-      turn.asOwner === true || (turn.source === "speech" && this.ownerSpeakerLabel !== null && turn.speakerLabel === this.ownerSpeakerLabel);
+    const owner = resolveOwner({
+      source: turn.source,
+      asOwner: turn.asOwner === true,
+      profile: turn.source === "speech" ? this.voiceProfile() : null,
+      score: turn.ownerScore ?? null,
+      durationSec: turn.durationSec ?? null,
+      speakerLabel: turn.speakerLabel,
+      calibratedOwnerLabel: this.ownerSpeakerLabel,
+      verifiedOwnerLabels: turn.connectionId === this.speechConnectionId ? this.verifiedOwnerLabels : [],
+    });
+    const isOwner = owner.isOwner;
     const now = this.now();
     const utterance = await this.store.addUtterance({
       sessionId: this.id,
@@ -188,9 +225,15 @@ export class Session {
       startedAt: turn.startedAt ?? now,
       endedAt: turn.endedAt ?? now,
       isOwner,
+      ownerCertain: owner.ownerCertain,
+      ownerBasis: owner.basis,
+      ownerScore: owner.score,
       source: turn.source,
     });
     if (!utterance) return null; // replayed provider event
+    if (owner.basis === "voice" && owner.ownerCertain && turn.connectionId === this.speechConnectionId) {
+      this.verifiedOwnerLabels = [...this.verifiedOwnerLabels, turn.speakerLabel].slice(-5);
+    }
 
     const generation = this.generation;
     this.opts.emit({ type: "transcript.final", utterance, generation });
@@ -236,7 +279,7 @@ export class Session {
       focusMode: this.focusMode,
       utterance,
       speaker,
-      identityCertain: role === "owner" || speaker !== null,
+      identityCertain: role === "owner" ? utterance.ownerCertain : speaker !== null,
       people,
       memories,
       retrievalMode: retrieval.mode,
@@ -250,15 +293,23 @@ export class Session {
 
     // Wording veto: a voice-labeled "owner" turn that speaks TO the owner probably isn't the owner.
     // It may not teach or rename anything; the transcript offers a one-click correction instead.
-    const suspect = role === "owner" && utterance.source === "speech" && decision.speakerCheck.addressesOwner;
+    // A manual "that was me" always wins (§2.5), so it is never re-vetoed on the re-run.
+    const suspect =
+      role === "owner" && utterance.source === "speech" && utterance.ownerBasis !== "manual" && decision.speakerCheck.addressesOwner;
     if (suspect) {
       utterance.ownerSuspect = true;
       await this.store.updateUtterance(utterance.id, { ownerSuspect: true });
+      if (utterance.ownerBasis === "voice") {
+        // A voice-accepted turn the wording vetoes must not make its label sticky for later short turns.
+        const i = this.verifiedOwnerLabels.lastIndexOf(utterance.speakerLabel);
+        if (i >= 0) this.verifiedOwnerLabels.splice(i, 1);
+      }
     }
     await this.noteSelfIdentification(utterance, decision.speakerCheck.selfIdentifiedAs, people);
 
     const effect = validateDecision(suspect ? { ...decision, action: "WAIT", spokenText: null } : decision, {
       role,
+      ownerCertain: utterance.isOwner && utterance.ownerCertain,
       utteranceId: utterance.id,
       speakerPersonId: utterance.personId,
       ownerPersonId: null,
@@ -283,7 +334,7 @@ export class Session {
         spokenText: spoken,
         responseId,
         latencyMs: this.now() - started,
-        note: effect.kind === "alert" ? effect.reason : null,
+        note: effect.kind === "alert" ? effect.reason : effect.kind === "wait" ? effect.blocked ?? null : null,
         retrieval: { mode: retrieval.mode, hits: retrieval.hits },
       },
     });
@@ -396,13 +447,21 @@ export class Session {
 
   /**
    * Explicit owner UI correction: "that was me" / "not me". Re-runs the turn with the right role.
-   * This is the only path besides calibration/verification by which a speech turn becomes the owner's.
+   * This is the only path besides calibration/verification by which a speech turn becomes the owner's,
+   * and the only way an uncertain owner turn (borderline voice, short turn) gets learned from.
    */
   async reattribute(utteranceId: string, asOwner: boolean) {
     const u = (await this.store.recentUtterances(this.id, 500)).find((x) => x.id === utteranceId);
     if (!u) return null;
+    if (u.ownerBasis === "manual" && u.isOwner === asOwner) return u; // already corrected this way
     const personId = asOwner ? null : this.personFor(u.connectionId, u.speakerLabel);
-    const updated = await this.store.updateUtterance(u.id, { isOwner: asOwner, ownerSuspect: false, personId });
+    const updated = await this.store.updateUtterance(u.id, {
+      isOwner: asOwner,
+      ownerCertain: asOwner,
+      ownerBasis: "manual",
+      ownerSuspect: false,
+      personId,
+    });
     if (!updated) return null;
     if (asOwner) {
       if (this.pendingQuestion?.id === u.id) this.pendingQuestion = null;
@@ -559,6 +618,7 @@ export class Session {
           return { connectionId, speakerLabel, ...v };
         }),
         speechLabels,
+        voice: this.opts.voiceStatus?.() ?? NO_VOICE,
       },
       people,
       memories,

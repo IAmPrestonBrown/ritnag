@@ -4,7 +4,7 @@
 
 A mischievous desktop companion for Cal Hacks 13.0. It listens during a session you start, remembers your answers, recognizes paraphrased repeat questions, answers them aloud in a tone you chose for each person, and gets you when something important comes up that it can't answer.
 
-**Stack:** React + Vite · Node/Express + `ws` · Deepgram (STT + diarization) · **Moss** (semantic retrieval) · Claude (judgment + wording) · **Cartesia** (voice) · local JSON (source of truth).
+**Stack:** React + Vite · Node/Express + `ws` · Deepgram (STT + diarization) · sherpa-onnx (owner voice verification) · **Moss** (semantic retrieval) · Claude (judgment + wording) · **Cartesia** (voice) · local JSON (source of truth).
 
 ## Run
 
@@ -22,8 +22,11 @@ Open the `http://localhost:3000/#token=…` link the server prints. The token is
 | `npm test` | Session/pipeline tests |
 | `npm run typecheck` | TypeScript |
 | `npm run build && npm start` | Production build served by Node |
+| `npm run voice:model` | Prefetch the speaker-verification model (~26 MB) |
 
-Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store, and `workspace-token` holds the browser access token.
+Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store, `workspace-token` holds the browser access token, `owner-voice.json` is the owner's voice profile (embedding only; delete it from the UI), and `models/` caches the speaker model.
+
+Enroll the owner's voice from the UI (**Enroll voice**, about 90 s) before demoing anything that learns from speech.
 
 ## Docs
 
