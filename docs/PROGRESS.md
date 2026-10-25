@@ -41,13 +41,15 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 ## Then
 
 - [~] Slice 2: mic capture → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration; live speaker map. **Code done, needs live test.**
+- [ ] **Speaker ID (teammate):** owner voice onboarding + verifier + wording veto, per `docs/SPEAKER_ID.md`. A live test showed diarization alone mislabels the owner, so this blocks trustworthy voice learning.
+- [ ] Turn-splitting fix: assign speaker by majority speech time, split only on real handoffs (`docs/SPEAKER_ID.md` §7).
 - [ ] Slice 3: live Bob scene end to end by voice.
 - [ ] Slice 4: priority + focus escalation by voice; one meeting fact recalled later.
 - [ ] Slice 5: polish, venue rehearsal, video, submission.
 
 ## Honest limitations
 
-- Speaker identity is per-connection diarization plus owner confirmation. It is not voice recognition.
+- Speaker identity is currently per-connection diarization plus owner confirmation, and **it fails in practice**: teammates got the owner's label in a live test. Owner voice enrollment is planned (`docs/SPEAKER_ID.md`). Until then, use typed input or manual speaker correction for anything that teaches facts.
 - Without Moss credentials, retrieval runs in "unavailable" mode (recent memories passed directly to Claude), and the UI says so.
 - Half-duplex: visitors must wait for the imp to finish speaking.
 - Transient facts expire after 8 hours (fixed TTL).

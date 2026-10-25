@@ -31,4 +31,5 @@ Data lives in `data/` (gitignored): `imp-memory.json` is the authoritative store
 - [Build plan](docs/BUILD_PLAN.md)
 - [Progress](docs/PROGRESS.md)
 - [Demo script](docs/DEMO.md)
+- [Speaker identification design](docs/SPEAKER_ID.md)
 - [Cal Hacks notes + sponsor evidence](docs/CALHACKS.md)

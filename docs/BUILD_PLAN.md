@@ -1,6 +1,8 @@
 # Claude Code handoff: build the conversational imp
 
 > **Revision 2026-10-24 — Moss + Cartesia.** Primary sponsor integrations are now **Moss** (semantic retrieval) and **Cartesia** (voice). Convex is dropped from the critical path; no Convex code was ever written, so nothing needed migrating. **Local server-side JSON is the authoritative store** for people, settings, transcripts, and memories. Moss is a searchable index over memories, keyed by the same stable memory IDs, rebuilt from local records on boot or on demand. A Moss match never establishes answerability by itself: Claude checks relevance, freshness, and support, and the server only accepts cited IDs that resolve to active local records. Moss does not do speaker identification. Sections below are updated where they conflict; see `docs/ARCHITECTURE.md` for the current design.
+>
+> **Revision 2026-10-24 — owner voice enrollment.** A live test showed streaming diarization can't separate the owner from teammates on one laptop mic. We are reversing the "no persistent biometric enrollment" limit **for the owner only**: an opt-in onboarding flow builds a local, deletable voice profile, and owner authority comes from verifying against it. Wording cues may only downgrade owner confidence. Design and task list: `docs/SPEAKER_ID.md`.
 
 Use this entire document as your implementation brief. Start implementing after a short repository inspection. The goal is the fastest reliable, entertaining Cal Hacks demo, with a real memory-and-response loop. Make routine decisions yourself. Ask only for missing credentials or a genuinely blocking product decision.
 
