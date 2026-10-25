@@ -2,7 +2,11 @@
   "name": "imp",
   "private": true,
   "version": "0.1.0",
+  "description": "Imp: a mischievous desktop companion that remembers your answers and handles repeat interruptions.",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch --clear-screen=false server/index.ts",
     "build": "vite build",
