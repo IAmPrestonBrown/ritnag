@@ -18,13 +18,13 @@ import {
 
 /** Six normal prompts plus two read from demo distance and posture (§4). */
 export const enrollmentPrompts = (ownerName: string) => [
-  { text: `Hey imp, it's ${ownerName}. I'm going to be heads-down for a while.`, distance: false },
+  { text: `Hey Ritnag, it's ${ownerName}. I'm going to be heads-down for a while.`, distance: false },
   { text: "Did anyone push the frontend changes before the meeting this afternoon?", distance: false },
   { text: "The deploy is approved for Thursday, but only after all the tests pass.", distance: false },
   { text: "Tell Maya the slides are in the shared folder, under the demo directory.", distance: false },
   { text: "Can you remind me what time the judges are coming around tonight?", distance: false },
   { text: "My favorite part of this project is the tiny red imp with the attitude.", distance: false },
-  { text: "Okay imp, I'm leaning back now. Can you still hear me clearly?", distance: true },
+  { text: "Okay Ritnag, I'm leaning back now. Can you still hear me clearly?", distance: true },
   { text: "If Bob asks about the wifi again, tell him it's written on the whiteboard.", distance: true },
 ];
 

@@ -83,7 +83,7 @@ export function PeoplePanel({ snapshot }: { snapshot: Snapshot }) {
   return (
     <section className="panel">
       <h2>People</h2>
-      {snapshot.people.length === 0 && <p className="muted">No one named yet. Tell the imp “That was Bob…”.</p>}
+      {snapshot.people.length === 0 && <p className="muted">No one named yet. Tell Ritnag “That was Bob…”.</p>}
       <ul className="people">
         {snapshot.people.map((p) => (
           <li key={p.id}>
