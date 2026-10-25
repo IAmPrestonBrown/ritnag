@@ -65,6 +65,8 @@ export class Session {
   private pendingQuestion: Utterance | null = null;
   // unidentified visitor turns awaiting "That was Bob..."; keyed by binding key
   private pendingUnknown = new Map<string, Utterance>();
+  // binding key -> person a visitor named themself as; shown for one-click confirmation, never auto-applied
+  private suggestions = new Map<string, { personId: string; name: string }>();
   private queue: Promise<void> = Promise.resolve();
   private responses = new Map<string, PendingResponse>();
   private speakingResponseId: string | null = null;
@@ -87,6 +89,7 @@ export class Session {
   setSpeechConnection(connectionId: string | null) {
     for (const key of [...this.bindings.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.bindings.delete(key);
     for (const key of [...this.pendingUnknown.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.pendingUnknown.delete(key);
+    for (const key of [...this.suggestions.keys()]) if (!key.startsWith(`${TYPED_CONNECTION}|`)) this.suggestions.delete(key);
     this.speechConnectionId = connectionId;
     this.ownerSpeakerLabel = null;
     this.calibrating = connectionId !== null; // every new connection starts by finding the owner
@@ -120,6 +123,7 @@ export class Session {
     if (personId) this.bindings.set(k, personId);
     else this.bindings.delete(k);
     this.pendingUnknown.delete(k);
+    this.suggestions.delete(k);
     if (personId) {
       const ids = (await this.store.recentUtterances(this.id, 200))
         .filter((u) => u.connectionId === connectionId && u.speakerLabel === label && !u.isOwner)
@@ -146,6 +150,7 @@ export class Session {
     this.mutedUntil = 0;
     this.pendingQuestion = null;
     this.pendingUnknown.clear();
+    this.suggestions.clear();
     if (opts.wipe) {
       this.bindings.clear();
       this.id = randomUUID();
@@ -236,7 +241,16 @@ export class Session {
     const decision = await this.decider(ctx);
     if (generation !== this.generation) return; // Stop/Reset happened mid-call
 
-    const effect = validateDecision(decision, {
+    // Wording veto: a voice-labeled "owner" turn that speaks TO the owner probably isn't the owner.
+    // It may not teach or rename anything; the transcript offers a one-click correction instead.
+    const suspect = role === "owner" && utterance.source === "speech" && decision.speakerCheck.addressesOwner;
+    if (suspect) {
+      utterance.ownerSuspect = true;
+      await this.store.updateUtterance(utterance.id, { ownerSuspect: true });
+    }
+    await this.noteSelfIdentification(utterance, decision.speakerCheck.selfIdentifiedAs, people);
+
+    const effect = validateDecision(suspect ? { ...decision, action: "WAIT", spokenText: null } : decision, {
       role,
       utteranceId: utterance.id,
       speakerPersonId: utterance.personId,
@@ -352,6 +366,44 @@ export class Session {
         return effect.spokenText ?? `Noted. ${person.name}.`;
       }
     }
+  }
+
+  // ---------- identity corrections ----------
+
+  private async noteSelfIdentification(u: Utterance, name: string | null, people: Person[]) {
+    if (!name || u.isOwner || u.personId) return;
+    const person = people.find((p) => p.name.toLowerCase() === name.trim().toLowerCase());
+    if (!person) return;
+    this.suggestions.set(key(u.connectionId, u.speakerLabel), { personId: person.id, name: person.name });
+  }
+
+  async resolveSuggestion(connectionId: string, label: string, accept: boolean) {
+    const k = key(connectionId, label);
+    const s = this.suggestions.get(k);
+    this.suggestions.delete(k);
+    if (s && accept) await this.bindSpeaker(connectionId, label, s.personId);
+    else await this.broadcast();
+  }
+
+  /**
+   * Explicit owner UI correction: "that was me" / "not me". Re-runs the turn with the right role.
+   * This is the only path besides calibration/verification by which a speech turn becomes the owner's.
+   */
+  async reattribute(utteranceId: string, asOwner: boolean) {
+    const u = (await this.store.recentUtterances(this.id, 500)).find((x) => x.id === utteranceId);
+    if (!u) return null;
+    const personId = asOwner ? null : this.personFor(u.connectionId, u.speakerLabel);
+    const updated = await this.store.updateUtterance(u.id, { isOwner: asOwner, ownerSuspect: false, personId });
+    if (!updated) return null;
+    if (asOwner) {
+      if (this.pendingQuestion?.id === u.id) this.pendingQuestion = null;
+      const k = key(u.connectionId, u.speakerLabel);
+      if (this.pendingUnknown.get(k)?.id === u.id) this.pendingUnknown.delete(k);
+    }
+    const generation = this.generation;
+    await this.broadcast();
+    this.queue = this.queue.then(() => this.process(updated, generation)).catch((err) => this.fail(err));
+    return updated;
   }
 
   // ---------- memory + index ----------
@@ -489,6 +541,10 @@ export class Session {
         bindings,
         pendingUnknownSpeaker: this.singlePendingUnknown()?.speakerLabel ?? null,
         calibration: { active: this.calibrating, candidate: this.calibrationCandidate },
+        suggestions: [...this.suggestions].map(([k, v]) => {
+          const [connectionId = "", speakerLabel = ""] = k.split("|");
+          return { connectionId, speakerLabel, ...v };
+        }),
         speechLabels,
       },
       people,

@@ -24,6 +24,7 @@ export interface MemoryStore {
   /** Returns null if (connectionId, providerEventId) was already stored. */
   addUtterance(u: Omit<Utterance, "id">): Promise<Utterance | null>;
   setUtterancePerson(ids: string[], personId: string): Promise<void>;
+  updateUtterance(id: string, patch: Partial<Pick<Utterance, "isOwner" | "personId" | "ownerSuspect">>): Promise<Utterance | null>;
   recentUtterances(sessionId: string, limit: number): Promise<Utterance[]>;
 
   /** Returns null if a question event for this utterance already exists. */
@@ -127,6 +128,14 @@ export class JsonMemoryStore implements MemoryStore {
   async setUtterancePerson(ids: string[], personId: string) {
     for (const u of this.data.utterances) if (ids.includes(u.id)) u.personId = personId;
     this.save();
+  }
+
+  async updateUtterance(id: string, patch: Partial<Pick<Utterance, "isOwner" | "personId" | "ownerSuspect">>) {
+    const u = this.data.utterances.find((x) => x.id === id);
+    if (!u) return null;
+    Object.assign(u, patch);
+    this.save();
+    return { ...u };
   }
 
   async recentUtterances(sessionId: string, limit: number) {

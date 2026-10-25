@@ -25,6 +25,8 @@ export interface Snapshot {
     bindings: Record<string, string>; // speakerLabel -> personId (this connection only)
     pendingUnknownSpeaker: string | null;
     calibration: { active: boolean; candidate: string | null };
+    /** "Is spk2 Bob?": a visitor named themself; needs one click to apply. */
+    suggestions: { connectionId: string; speakerLabel: string; personId: string; name: string }[];
     speechLabels: string[]; // labels heard on the current speech connection
   };
   people: Person[];

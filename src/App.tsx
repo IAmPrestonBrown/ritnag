@@ -5,7 +5,7 @@ import { Player } from "./audio/playback";
 import { MicCapture } from "./audio/capture";
 import { ImpAvatar } from "./components/ImpAvatar";
 import { AlertsPanel, MemoryPanel, PeoplePanel, TranscriptPanel } from "./components/Panels";
-import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap } from "./components/SessionControls";
+import { CalibrationBar, DebugDrawer, SessionControls, SpeakerMap, SuggestionBar } from "./components/SessionControls";
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -125,6 +125,7 @@ export function App() {
       </header>
       {idx.lastError && <div className="banner warn">Moss: {idx.lastError}. Local memory is intact; rebuild the index to resync.</div>}
       <CalibrationBar snapshot={snapshot} />
+      <SuggestionBar snapshot={snapshot} />
       {error && (
         <div className="banner err">
           {error} <button className="small" onClick={() => setError(null)}>Dismiss</button>

@@ -56,7 +56,11 @@ input { flex: 1; min-width: 0; }
 .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
 .count.total { font-size: 13px; }
 
-.transcript li { display: grid; grid-template-columns: 9.5em 1fr auto; gap: 8px; font-size: 14px; }
+.transcript li { display: grid; grid-template-columns: 9.5em 1fr auto; gap: 8px; font-size: 14px; align-items: start; }
+.transcript li.suspect .who { color: var(--alert); }
+.transcript .row-actions button { opacity: 0.55; font-size: 12px; padding: 0 6px; }
+.transcript li:hover .row-actions button { opacity: 1; }
+.tag.warn { color: var(--alert); border-color: var(--alert); margin-left: 6px; }
 .transcript .who { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transcript li.owner .who { color: var(--ok); }
 .transcript li.known .who { color: var(--accent); }

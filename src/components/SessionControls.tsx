@@ -148,6 +148,25 @@ export function CalibrationBar({ snapshot }: { snapshot: Snapshot }) {
   );
 }
 
+/** "Is spk2 Bob?": a visitor named themself. Applied only on an owner click. */
+export function SuggestionBar({ snapshot }: { snapshot: Snapshot }) {
+  const s = snapshot.session.suggestions[0];
+  if (!s) return null;
+  const answer = (accept: boolean) =>
+    post("/api/identity/suggestion", { connectionId: s.connectionId, speakerLabel: s.speakerLabel, accept });
+  return (
+    <div className="banner calibrate">
+      {s.speakerLabel} said they're <strong>{s.name}</strong>. Is that right?{" "}
+      <button className="small" onClick={() => void answer(true)}>
+        Yes, that's {s.name}
+      </button>{" "}
+      <button className="small" onClick={() => void answer(false)}>
+        No
+      </button>
+    </div>
+  );
+}
+
 /** Live speaker labels for this connection. Manual mapping is a recovery control, not voice recognition. */
 export function SpeakerMap({ snapshot }: { snapshot: Snapshot }) {
   const { speechLabels, connectionId, ownerSpeakerLabel, bindings } = snapshot.session;

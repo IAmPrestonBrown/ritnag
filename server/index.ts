@@ -20,6 +20,8 @@ import {
   FocusRequest,
   IdentityConfirmRequest,
   OwnerSpeakerRequest,
+  ReattributeRequest,
+  SuggestionRequest,
   PersonUpdateRequest,
   PlaybackRequest,
   SpeechRequest,
@@ -173,6 +175,20 @@ app.post("/api/owner/speaker", async (req, res) => {
   const b = body(OwnerSpeakerRequest, req, res);
   if (!b) return;
   session.setOwnerSpeaker(b.speakerLabel);
+  res.json({ ok: true });
+});
+
+app.post("/api/utterance/reattribute", async (req, res) => {
+  const b = body(ReattributeRequest, req, res);
+  if (!b) return;
+  const u = await session.reattribute(b.utteranceId, b.asOwner);
+  res.status(u ? 200 : 404).json(u ?? { error: "no such utterance in this session" });
+});
+
+app.post("/api/identity/suggestion", async (req, res) => {
+  const b = body(SuggestionRequest, req, res);
+  if (!b) return;
+  await session.resolveSuggestion(b.connectionId, b.speakerLabel, b.accept);
   res.json({ ok: true });
 });
 

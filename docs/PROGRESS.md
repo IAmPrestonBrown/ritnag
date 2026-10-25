@@ -4,7 +4,7 @@ _Last updated 2026-10-24._
 
 ## Works now (verified)
 
-- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (18 tests), and `npm run build` all pass.
+- Repo scaffold: Vite + React UI served through the Express dev server on one origin. `npm run typecheck`, `npm test` (25 tests), and `npm run build` all pass.
 - Typed-input pipeline (`POST /api/turn`) using the same session pipeline speech will use.
 - Session logic covered by tests with a scripted decider and a fake index:
   - Replayed provider events don't answer or count twice.
@@ -42,6 +42,8 @@ One spoken question triggers exactly one audible answer, with no feedback loop. 
 
 - [~] Slice 2: mic capture → `/api/audio` → Deepgram (`nova-3`, `diarize_model=latest`, interim, utterance end) → turn assembler; owner calibration; live speaker map. **Code done, needs live test.**
 - [ ] **Speaker ID (teammate):** owner voice onboarding + verifier + wording veto, per `docs/SPEAKER_ID.md`. A live test showed diarization alone mislabels the owner, so this blocks trustworthy voice learning.
+- [x] Wording veto + self-ID suggestions + one-click "not me / that was me" re-attribution (`docs/SPEAKER_ID.md` §6).
+- [x] Test voice button; blocked browser playback now shows an error instead of failing silently.
 - [x] Turn-splitting fix: speaker by majority speech time, flicker absorbed, splits only on real handoffs (`docs/SPEAKER_ID.md` §7).
 - [ ] Slice 3: live Bob scene end to end by voice.
 - [ ] Slice 4: priority + focus escalation by voice; one meeting fact recalled later.

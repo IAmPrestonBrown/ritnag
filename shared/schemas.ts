@@ -24,6 +24,8 @@ export interface Utterance {
   endedAt: number;
   isOwner: boolean;
   source: "typed" | "speech";
+  /** Labeled as the owner, but the wording suggests someone else (e.g. it addresses the owner by name). */
+  ownerSuspect?: boolean;
 }
 
 export interface Memory {
@@ -95,8 +97,16 @@ export const IdentityProposal = z.object({
   refersTo: z.enum(["pending_unknown", "named_existing"]),
 });
 
+export const SpeakerCheck = z.object({
+  // the turn speaks TO the owner ("How old are you, Preston?"), so the owner probably didn't say it
+  addressesOwner: z.boolean(),
+  // the speaker names themself ("it's Bob again"); a hint, never proof
+  selfIdentifiedAs: z.string().nullable(),
+});
+
 export const Decision = z.object({
   action: DecisionAction,
+  speakerCheck: SpeakerCheck,
   isQuestion: z.boolean(),
   isImportant: z.boolean(),
   memoryIds: z.array(z.string()),
@@ -146,6 +156,8 @@ export const TeachRequest = z.object({
 });
 
 export const OwnerSpeakerRequest = z.object({ speakerLabel: z.string().nullable() });
+export const ReattributeRequest = z.object({ utteranceId: z.string(), asOwner: z.boolean() });
+export const SuggestionRequest = z.object({ connectionId: z.string(), speakerLabel: z.string(), accept: z.boolean() });
 export const FocusRequest = z.object({ focusMode: z.boolean() });
 export const AckRequest = z.object({ alertId: z.string() });
 export const SpeechRequest = z.object({ responseId: z.string() });

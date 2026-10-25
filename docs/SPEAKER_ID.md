@@ -124,7 +124,9 @@ Check each candidate's current docs, licensing and Node support before committin
 
 Pick by: false-accept rate against the teammate's voice in a noisy room, latency per turn (target **≤150 ms**), and setup risk on the demo laptop. Keep provider keys server-side like everything else.
 
-## 6. Wording cues (inside the existing Claude call)
+## 6. Wording cues (inside the existing Claude call) — done 2026-10-24
+
+> **Implemented:** `Decision.speakerCheck` in `shared/schemas.ts`, prompt rules in `server/decision.ts`, and the veto plus suggestions in `Session.process()` / `noteSelfIdentification()`. Utterances carry `ownerSuspect`. The UI shows a "not you?" tag, "not me" / "that was me" buttons that call `POST /api/utterance/reattribute` and re-run the turn, and an "Is spk2 Bob?" bar (`POST /api/identity/suggestion`). Verified on real Haiku 5.5 against the transcript examples. **When the verifier lands, feed its result into the same place**: the veto already only applies to speech turns marked as the owner.
 
 No extra model call. Add fields to the decision schema (`shared/schemas.ts` `Decision`) and the prompt (`server/decision.ts`):
 

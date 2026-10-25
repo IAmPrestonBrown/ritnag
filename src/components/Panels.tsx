@@ -15,10 +15,25 @@ export function TranscriptPanel({ snapshot, partial }: { snapshot: Snapshot; par
       {rows.length === 0 && !partial && <p className="muted">Nothing heard yet.</p>}
       <ol className="transcript">
         {rows.map((u) => (
-          <li key={u.id} className={u.isOwner ? "owner" : u.personId ? "known" : "unknown"}>
+          <li key={u.id} className={`${u.isOwner ? "owner" : u.personId ? "known" : "unknown"}${u.ownerSuspect ? " suspect" : ""}`}>
             <span className="who">{speakerName(snapshot, u)}</span>
-            <span className="what">{u.text}</span>
-            {u.source === "typed" && <span className="tag">typed</span>}
+            <span className="what">
+              {u.text}
+              {u.ownerSuspect && <span className="tag warn" title="Labeled as you, but it talks to you. Not learned from.">not you?</span>}
+            </span>
+            <span className="row-actions">
+              {u.source === "typed" ? (
+                <span className="tag">typed</span>
+              ) : (
+                <button
+                  className="small"
+                  title={u.isOwner ? "This wasn't me: re-run as a visitor" : "This was me: re-run as the owner"}
+                  onClick={() => void post("/api/utterance/reattribute", { utteranceId: u.id, asOwner: !u.isOwner })}
+                >
+                  {u.isOwner ? "not me" : "that was me"}
+                </button>
+              )}
+            </span>
           </li>
         ))}
         {partial && (

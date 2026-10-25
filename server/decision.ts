@@ -48,6 +48,10 @@ Delivery rules for spokenText:
 - Sarcasm must preserve the answer: the fact has to be clearly audible.
 - Jokes target the repeated interruption or the situation, never appearance, identity, disability, or anything personal.
 
+Speaker check (fill on every turn, both roles; speaker labels come from imperfect voice diarization, so the words are a second opinion):
+- speakerCheck.addressesOwner: true if the turn speaks TO the owner, e.g. uses the owner's name in the vocative or asks the owner about themself ("How old are you, Preston?", "Preston, did you push it?"). Saying the owner's name in the third person ("Preston said it's pushed") does not count.
+- speakerCheck.selfIdentifiedAs: the name the speaker gives for THEMSELF ("it's Bob again", "Maya here"), else null. Never infer it from anything else.
+
 Field hygiene: set unused fields to null (or [] for memoryIds). isQuestion reports whether the turn is a question or request directed at the owner.`;
 
 export function buildUserMessage(ctx: DecisionContext): string {

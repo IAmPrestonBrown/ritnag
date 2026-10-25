@@ -7,6 +7,7 @@ import type { Decision, Memory } from "../shared/schemas";
 
 const base: Decision = {
   action: "WAIT",
+  speakerCheck: { addressesOwner: false, selfIdentifiedAs: null },
   isQuestion: false,
   isImportant: false,
   memoryIds: [],
@@ -176,6 +177,53 @@ describe("session pipeline", () => {
     await say("spk1", "Did you push the frontend PR?", { source: "speech", connectionId: "dg-1", providerEventId: "q1", asOwner: false });
     await say("spk0", "Yes, it's pushed.", { source: "speech", connectionId: "dg-1", providerEventId: "a1", asOwner: false });
     expect(calls.map((c) => c.role)).toEqual(["visitor", "owner"]);
+  });
+
+  it("wording veto: an 'owner' speech turn that addresses the owner can't teach anything", async () => {
+    const { session, say, store } = setup((ctx) =>
+      ctx.role === "owner"
+        ? {
+            action: "LEARN",
+            speakerCheck: { addressesOwner: true, selfIdentifiedAs: null },
+            memoryProposal: { kind: "fact", canonicalQuestion: null, factualAnswer: "Preston is 90", sourceUtteranceIds: [], isTransient: false, supersedesMemoryId: null },
+          }
+        : {},
+    );
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    const u = await say("spk0", "How old are you, Preston?", { source: "speech", connectionId: "dg-1", providerEventId: "s1", asOwner: false });
+    expect(await store.listAllMemories()).toHaveLength(0);
+    expect((await store.recentUtterances(session.id, 10)).find((x) => x.id === u!.id)?.ownerSuspect).toBe(true);
+  });
+
+  it("self-identification only suggests a binding until the owner confirms", async () => {
+    const { session, say, store } = setup((ctx) =>
+      ctx.role === "visitor" ? { action: "WAIT", speakerCheck: { addressesOwner: false, selfIdentifiedAs: "bob" } } : {},
+    );
+    const bob = await store.createPerson({ name: "Bob", relationship: null, tone: "sarcastic", priority: false });
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    await say("spk2", "It's Bob again.", { source: "speech", connectionId: "dg-1", providerEventId: "b1", asOwner: false });
+    expect(session.personFor("dg-1", "spk2")).toBeNull();
+    expect((await session.snapshot()).session.suggestions).toEqual([
+      expect.objectContaining({ speakerLabel: "spk2", personId: bob.id }),
+    ]);
+    await session.resolveSuggestion("dg-1", "spk2", true);
+    expect(session.personFor("dg-1", "spk2")).toBe(bob.id);
+  });
+
+  it("'that was me' re-runs a visitor-labeled answer as the owner and learns it", async () => {
+    const { session, say, store, calls } = setup(scripted);
+    session.setSpeechConnection("dg-1");
+    session.setOwnerSpeaker("spk0");
+    await say("spk1", "Did you push the frontend PR?", { source: "speech", connectionId: "dg-1", providerEventId: "q", asOwner: false });
+    // owner's answer got the wrong label
+    const ans = await say("spk1", "Yes, it's pushed.", { source: "speech", connectionId: "dg-1", providerEventId: "a", asOwner: false });
+    expect(await store.listAllMemories()).toHaveLength(0);
+    await session.reattribute(ans!.id, true);
+    await session.idle();
+    expect(calls.at(-1)!.role).toBe("owner");
+    expect(await store.listAllMemories()).toHaveLength(1);
   });
 
   it("an answer citing a memory that wasn't retrieved escalates instead of inventing", async () => {
