@@ -38,7 +38,7 @@ const ISSUE_TEXT: Record<string, string> = {
 };
 
 const WARNING_TEXT: Record<string, string> = {
-  self_below_accept: "Your own score is below the accept threshold now. Re-enroll from your demo position, or you'll mostly get “Was that you?” prompts.",
+  self_below_accept: "Your own score is below the accept threshold now, so most of your turns won't count as you. If the impostor check used your own voice, redo it with a teammate; otherwise re-enroll from your demo position.",
   not_separable: "Your voice and your teammate's scored too close together. Re-enroll in a quieter spot; until then most turns will be uncertain (no learning).",
 };
 

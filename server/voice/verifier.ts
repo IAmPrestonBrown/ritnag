@@ -82,10 +82,14 @@ const round = (x: number) => Math.round(x * 1000) / 1000;
  */
 export function calibrateThresholds(
   defaults: VoiceThresholds,
-  evidence: { selfScore: number | null; impostorScore: number | null },
+  evidence: { selfScore: number | null; impostorScore: number | null; enrollSelfScore?: number | null },
 ): { thresholds: VoiceThresholds; warning: CalibrationWarning } {
   let { accept, reject } = defaults;
   const { selfScore, impostorScore } = evidence;
+  // Live turns look like the enrollment takes more than like one deliberate self check, so the weaker
+  // of the two decides whether the owner can actually clear accept.
+  const ownScores = [selfScore, evidence.enrollSelfScore].filter((x): x is number => typeof x === "number");
+  const ownScore = ownScores.length ? Math.min(...ownScores) : null;
   if (impostorScore !== null) {
     reject = Math.max(reject, impostorScore + 0.05);
     accept = Math.max(accept, impostorScore + 0.15);
@@ -95,7 +99,7 @@ export function calibrateThresholds(
   let warning: CalibrationWarning = null;
   if (impostorScore !== null && impostorScore >= reject) warning = "not_separable"; // capped: can't clear them
   else if (selfScore !== null && impostorScore !== null && selfScore - impostorScore < 0.1) warning = "not_separable";
-  else if (selfScore !== null && selfScore < accept) warning = "self_below_accept";
+  else if (ownScore !== null && ownScore < accept) warning = "self_below_accept";
   return { thresholds: { accept: round(accept), reject: round(reject) }, warning };
 }
 

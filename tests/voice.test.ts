@@ -80,6 +80,15 @@ describe("calibrateThresholds", () => {
     expect(calibrateThresholds(defaults, { selfScore: 0.5, impostorScore: null }).warning).toBe("self_below_accept");
     expect(calibrateThresholds(defaults, { selfScore: 0.7, impostorScore: 0.65 }).warning).toBe("not_separable");
   });
+
+  it("warns when the enrollment takes themselves fall below accept, even if one self check passes", () => {
+    // 2026-10-24: a disguised own-voice "impostor" (0.742) lifted accept to 0.892. The single self check
+    // passed (0.913), but the takes agreed at only 0.874, and every live turn later landed below reject.
+    const r = calibrateThresholds(defaults, { enrollSelfScore: 0.874, selfScore: 0.913, impostorScore: 0.742 });
+    expect(r.thresholds).toEqual({ accept: 0.892, reject: 0.792 });
+    expect(r.warning).toBe("self_below_accept");
+    expect(calibrateThresholds(defaults, { enrollSelfScore: 0.874, selfScore: 0.9, impostorScore: 0.6 }).warning).toBeNull();
+  });
 });
 
 describe("resolveOwner", () => {
