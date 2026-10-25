@@ -29,6 +29,7 @@ export function SessionControls({
         Focus mode: {snapshot.session.focusMode ? "on" : "off"}
       </button>
       <button onClick={onStopSpeaking}>Stop speaking</button>
+      <button onClick={() => void post("/api/speech/test")}>Test voice</button>
       {confirmReset ? (
         <>
           <button className="danger" onClick={() => post("/api/session/reset", { everything: true }).then(() => setConfirmReset(false))}>

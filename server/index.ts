@@ -207,6 +207,12 @@ app.post("/api/speech", async (req, res) => {
   }
 });
 
+app.post("/api/speech/test", (_req, res) => {
+  if (!cartesiaConfigured()) return void res.status(503).json({ error: "Cartesia not configured" });
+  const responseId = session.say(`Testing, testing. ${OWNER_NAME}, I'm alive and mildly annoyed about it.`);
+  res.json({ responseId });
+});
+
 app.post("/api/playback", (req, res) => {
   const b = body(PlaybackRequest, req, res);
   if (!b) return;

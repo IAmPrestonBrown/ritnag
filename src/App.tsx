@@ -56,7 +56,6 @@ export function App() {
         case "state.changed":
           setImpState(e.state);
           if (e.caption) setCaption(e.caption);
-          if (e.state !== "error") setError(null);
           break;
         case "transcript.partial":
           setPartial({ speakerLabel: e.speakerLabel, text: e.text });

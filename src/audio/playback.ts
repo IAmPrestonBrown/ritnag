@@ -29,7 +29,13 @@ export class Player {
     const done = () => this.finish(responseId);
     audio.onended = done;
     audio.onerror = done;
-    await audio.play().catch(done);
+    try {
+      await audio.play();
+    } catch (err) {
+      done();
+      // usually autoplay policy: the page needs a click before audio may play
+      throw new Error(`playback blocked (${(err as Error).name}). Click anywhere on the page, then try again.`);
+    }
   }
 
   private finish(responseId: string) {

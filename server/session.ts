@@ -313,6 +313,7 @@ export class Session {
           });
           // Unanswered question: the owner's next reply may answer it.
           this.pendingQuestion = u;
+          if (!effect.spokenText) this.setState(this.listening ? "listening" : "idle", `Hmm. Waiting for ${ownerName} to answer that.`);
           if (!u.personId) this.pendingUnknown.set(key(u.connectionId, u.speakerLabel), u);
         }
         return effect.spokenText;
@@ -398,6 +399,11 @@ export class Session {
   }
 
   // ---------- speech gating ----------
+
+  /** Speaks fixed text through the normal speech path (used by the Test voice control). */
+  say(text: string) {
+    return this.queueSpeech(text, this.generation);
+  }
 
   private queueSpeech(text: string, generation: number) {
     const responseId = randomUUID();
