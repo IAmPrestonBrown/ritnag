@@ -1,5 +1,5 @@
 import type { Snapshot } from "../../shared/events";
-import type { Person, Tone } from "../../shared/schemas";
+import { TONE_NOTE_MAX, type Person, type Tone } from "../../shared/schemas";
 import { post } from "../api";
 
 const TONES: Tone[] = ["neutral", "friendly", "playful", "sarcastic", "annoyed", "savage"];
@@ -104,6 +104,19 @@ export function PeoplePanel({ snapshot }: { snapshot: Snapshot }) {
                 <input type="checkbox" checked={p.priority} onChange={(e) => update(p, { priority: e.target.checked })} /> priority
               </label>
             </div>
+            <input
+              key={p.toneNote ?? ""}
+              className="tone-note"
+              aria-label={`How to talk to ${p.name}`}
+              placeholder="How to talk to them (e.g. like he's five)"
+              maxLength={TONE_NOTE_MAX}
+              defaultValue={p.toneNote ?? ""}
+              onBlur={(e) => {
+                const v = e.target.value.trim() || null;
+                if (v !== (p.toneNote ?? null)) void update(p, { toneNote: v });
+              }}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            />
           </li>
         ))}
       </ul>
@@ -131,7 +144,8 @@ export function MemoryPanel({ snapshot, highlight }: { snapshot: Snapshot; highl
               {m.canonicalQuestion && <div className="q">{m.canonicalQuestion}</div>}
               <div className="a">{m.factualAnswer}</div>
               <div className="meta">
-                {m.kind} · asked {m.timesAsked}× {m.validUntil && "· expires"}{" "}
+                {m.kind}
+                {m.context && ` · ${m.context}`} · asked {m.timesAsked}× {m.validUntil && "· expires"}{" "}
                 {m.sourceUtteranceIds.length === 0
                   ? "· taught in UI"
                   : `· from “${m.sourceUtteranceIds.map((id) => byId.get(id)?.text).filter(Boolean).join(" / ").slice(0, 80)}”`}

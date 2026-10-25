@@ -1,4 +1,4 @@
-import type { Decision, Memory, Tone } from "../shared/schemas";
+import { TONE_NOTE_MAX, type Decision, type Memory, type Tone } from "../shared/schemas";
 
 const TRANSIENT_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_SPOKEN_CHARS = 280;
@@ -17,6 +17,7 @@ export type Effect =
       name: string;
       relationship: string | null;
       tone: Tone | null;
+      toneNote: string | null;
       priority: boolean | null;
       refersTo: "pending_unknown" | "named_existing";
       spokenText: string | null;
@@ -109,6 +110,7 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
           sourcePersonId: ctx.ownerPersonId,
           observedAt: ctx.now,
           validUntil: p.isTransient ? ctx.now + TRANSIENT_TTL_MS : null,
+          context: p.context?.trim() || null,
         },
       };
     }
@@ -120,6 +122,7 @@ export function validateDecision(d: Decision, ctx: ExecContext): Effect {
         name: p.name.trim(),
         relationship: p.relationship?.trim() || null,
         tone: p.tone,
+        toneNote: p.toneNote?.trim().slice(0, TONE_NOTE_MAX) || null,
         priority: p.priority,
         refersTo: p.refersTo,
         spokenText: clip(d.spokenText),
